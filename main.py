@@ -9,7 +9,7 @@ app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
 # 导入网页检查模块（后面会定义）
-from web_checker import checkers
+from checkers.web_checker import check_website
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
