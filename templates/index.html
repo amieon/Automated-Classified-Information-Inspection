@@ -1,7 +1,193 @@
-<form action="/check/web" method="post">
-    <input type="text" name="url" placeholder="输入待检查的网址" required>
-    <button type="submit">检查</button>
-</form>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 网页涉密检查工具</title>
+    <!-- Bootstrap 5 CSS (使用国内CDN) -->
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* 自定义样式 */
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .main-card {
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        .check-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            padding: 12px 40px;
+            font-size: 1.1rem;
+            border-radius: 30px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .check-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.5);
+        }
+        .check-btn:active {
+            transform: translateY(0);
+        }
+        .result-container {
+            display: none;
+            margin-top: 2rem;
+            animation: fadeIn 0.5s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+        .loading-text {
+            font-size: 1.2rem;
+            font-weight: 500;
+            color: #667eea;
+        }
+        .url-input {
+            border-radius: 30px;
+            padding: 12px 20px;
+            border: 2px solid #e0e0e0;
+            transition: border-color 0.3s;
+        }
+        .url-input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        .result-table {
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .result-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 600;
+        }
+        .highlight-badge {
+            background: #ff6b6b;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+        .footer-text {
+            color: rgba(255,255,255,0.7);
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 主卡片 -->
+        <div class="main-card p-4 p-md-5 mx-auto" style="max-width: 800px;">
+            <div class="text-center mb-4">
+                <h1 class="display-5 fw-bold" style="background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                    🔍 网页涉密检查
+                </h1>
+                <p class="text-muted">输入网址，自动检查该网页及所有子页面是否包含涉密信息</p>
+            </div>
 
-<!-- 嵌入结果的位置 -->
-<iframe name="result" style="width:100%; border:none;"></iframe>
+            <!-- 表单 -->
+            <form id="checkForm" action="/check/web" method="POST" target="resultFrame">
+                <div class="input-group input-group-lg mb-3">
+                    <input type="text" name="url" class="form-control url-input" placeholder="例如：https://example.com" required>
+                    <button type="submit" class="btn check-btn text-white px-4">
+                        <i class="bi bi-search"></i> 开始检查
+                    </button>
+                </div>
+            </form>
+
+            <!-- 加载动画 -->
+            <div id="loading" class="text-center py-4" style="display: none;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">加载中...</span>
+                </div>
+                <p class="loading-text mt-2">正在检查，请稍候...</p>
+            </div>
+
+            <!-- 结果iframe容器 -->
+            <div id="resultContainer" class="result-container">
+                <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>
+            </div>
+
+            <!-- 错误提示占位（如果iframe内容为空） -->
+            <div id="errorPlaceholder" class="alert alert-danger mt-3" style="display: none;">
+                出错了，请检查网址是否正确。
+            </div>
+        </div>
+
+        <div class="text-center footer-text">
+            <small>本工具仅用于安全检查，请勿用于非法用途</small>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <!-- 处理表单提交与iframe加载 -->
+    <script>
+        const form = document.getElementById('checkForm');
+        const loading = document.getElementById('loading');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultFrame = document.getElementById('resultFrame');
+        const errorPlaceholder = document.getElementById('errorPlaceholder');
+
+        // 表单提交时显示加载动画，隐藏旧的iframe
+        form.addEventListener('submit', function(e) {
+            // 不阻止默认提交，因为action指向后端，target为iframe
+            loading.style.display = 'block';
+            resultContainer.style.display = 'none';
+            errorPlaceholder.style.display = 'none';
+            // 清除旧iframe内容（如果有）
+            resultFrame.srcdoc = '';
+        });
+
+        // 监听iframe加载完成事件
+        resultFrame.addEventListener('load', function() {
+            loading.style.display = 'none';
+            try {
+                // 检查iframe内是否有内容（通过body长度）
+                const iframeDoc = resultFrame.contentDocument || resultFrame.contentWindow.document;
+                const bodyContent = iframeDoc.body ? iframeDoc.body.innerHTML.trim() : '';
+                if (bodyContent.length > 0) {
+                    resultContainer.style.display = 'block';
+                    errorPlaceholder.style.display = 'none';
+                    // 自适应高度
+                    iframeDoc.body.style.overflow = 'hidden';
+                    resultFrame.style.height = iframeDoc.documentElement.scrollHeight + 'px';
+                } else {
+                    // 无内容认为出错
+                    resultContainer.style.display = 'none';
+                    errorPlaceholder.style.display = 'block';
+                }
+            } catch (e) {
+                // 跨域或其他错误
+                resultContainer.style.display = 'block'; // 仍显示iframe，但可能看不到内容
+                errorPlaceholder.style.display = 'none';
+            }
+        });
+
+        // 当页面加载完成时调整iframe高度（如果有预加载内容）
+        window.addEventListener('load', function() {
+            // 如果有初始化内容，可以在这里调整高度
+            try {
+                const iframeDoc = resultFrame.contentDocument || resultFrame.contentWindow.document;
+                if (iframeDoc && iframeDoc.body) {
+                    resultFrame.style.height = iframeDoc.documentElement.scrollHeight + 'px';
+                }
+            } catch(e) {}
+        });
+
+        // 可选：按Enter键自动聚焦输入框
+        document.querySelector('.url-input').focus();
+    </script>
+</body>
+</html>
