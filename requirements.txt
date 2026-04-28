@@ -1,0 +1,18 @@
+fastapi
+uvicorn
+requests
+beautifulsoup4
+pymysql
+python-docx
+openpyxl
+python-pptx
+PyMuPDF
+pytesseract
+Pillow
+python-magic
+python-magic-bin
+# 可选，用于桌面窗口
+webview
+flaskwebgui
+# 以下是可选，用于自动打开浏览器
+webbrowser
