@@ -14,5 +14,3 @@ python-magic-bin
 # 可选，用于桌面窗口
 webview
 flaskwebgui
-# 以下是可选，用于自动打开浏览器
-webbrowser
