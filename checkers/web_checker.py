@@ -1,15 +1,12 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# 涉密关键词模糊匹配（允许中间有空格、点、下划线等）
 import re
+
 KEYWORDS = ["涉密", "秘密", "机密", "绝密", "保密", "泄密"]
 PATTERNS = [re.compile(r'[\s\.\-_]*?'.join(re.escape(c) for c in kw), re.IGNORECASE) for kw in KEYWORDS]
 
 def check_page_text(text):
-    """返回匹配到的行列表 [(line_num, line_content, matched_keywords)]"""
     lines = text.splitlines()
     results = []
     for i, line in enumerate(lines, 1):
@@ -26,21 +23,20 @@ def check_website(url):
     to_visit = {url}
     details = []
 
-    def process(page_url):
+    while to_visit:
+        page_url = to_visit.pop()
         if page_url in visited:
-            return
+            continue
         visited.add(page_url)
         try:
             resp = requests.get(page_url, timeout=10)
             resp.encoding = resp.apparent_encoding
             text = resp.text
         except:
-            return
-        # 检查涉密
+            continue
         found = check_page_text(text)
         if found:
             details.append({"url": page_url, "lines": found})
-        # 提取内部链接
         try:
             soup = BeautifulSoup(text, 'html.parser')
             domain = urlparse(url).netloc
@@ -50,12 +46,6 @@ def check_website(url):
                     to_visit.add(href)
         except:
             pass
-
-    # 使用线程池并行，但为了简单演示，这里用单线程循环（可改）
-    # 注意：多线程需考虑线程安全，这里先单线程运行
-    while to_visit:
-        page = to_visit.pop()
-        process(page)
 
     return {
         "checked_pages": len(visited),

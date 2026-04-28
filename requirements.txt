@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+jinja2
 requests
 beautifulsoup4
 pymysql
@@ -12,5 +13,4 @@ Pillow
 python-magic
 python-magic-bin
 # 可选，用于桌面窗口
-webview
 flaskwebgui
