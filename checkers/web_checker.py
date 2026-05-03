@@ -80,15 +80,15 @@ class WebChecker:
 
 # ========== 测试 ==========
 if __name__ == "__main__":
-    # 测试用正则检测器
-    detector = RegexLeakDetector(keywords=["秘密", "机密", "绝密", "内部"])
+    detector = RegexLeakDetector(keywords=["秘密", "机密", "绝密", "内部", "隐私"])
     checker = WebChecker(detector)
-
-    # 测试一个地址（可以换成自己搭建的本地网站）
-    result = checker.crawl_and_check("https://baidu.com")
+    # 爬取本地测试网站
+    result = checker.crawl_and_check("http://localhost:8000/")
     print(f"扫描完成，共 {result['total_pages']} 页，发现 {result['secret_pages']} 页存在风险")
     for p in result['details']:
         if p['leak_info']:
             print(f"  ❌ {p['url']}  风险数: {len(p['leak_info'])}")
+            for info in p['leak_info']:
+                print(f"      -> {info}")
         else:
             print(f"  ✅ {p['url']}  安全")
