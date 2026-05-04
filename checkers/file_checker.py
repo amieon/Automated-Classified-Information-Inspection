@@ -336,18 +336,31 @@ class FileCheckerModule(BaseChecker):
                 #         if i <= 3:  # 只打印前3行
                 #             print(f"  行{i} 无匹配, 内容片段: {line[:80]!r}")
                 # ==============================
+                def format_leak_lines(leak_lines: list) -> str:
+                    """
+                    将 leak_lines 格式化为可读字符串。
+                    输入: [ (行号, 关键字, 匹配内容) , ... ]
+                    输出: 多行字符串，每行格式如：第1行，关键字为：“机密”，具体内容：“["机密","秘密","绝密"...]”
+                    """
+                    lines = []
+                    for line_no, keyword, content in leak_lines:
+                        lines.append(f'第{line_no}行，关键字为：“{keyword}”，具体内容：“{content}”')
+                    return '\n'.join(lines)
                 leak_lines = detector.check_text(text)
                 #print(f"  leak_lines 最终返回: {leak_lines}")
                 results.append({
                     'path': file.filename,
                     'leak_lines': leak_lines,
                     'file_type': guess_file_type(content, is_bytes=True),
-                    'note': '' if text else '无法读取文本内容'
+                    'note': '' if text else '无法读取文本内容',
+                    'text': format_leak_lines(leak_lines)
+
                 })
             return self._build_html_result(results)
 
     @staticmethod
     def _build_html_result(results: list) -> str:
+        import html as html_mod  # 用于转义
         total_leak = sum(1 for r in results if r['leak_lines'])
         html = f"""
         <h3>✅ 文件检查结果</h3>
@@ -358,11 +371,44 @@ class FileCheckerModule(BaseChecker):
             </thead>
             <tbody>
         """
-        for r in results:
+        for i, r in enumerate(results):
             lines_str = "; ".join([f"第{l[0]}行" for l in r['leak_lines']]) if r['leak_lines'] else "无"
-            # 内容预览：取前100字符
-            preview = r.get('text', '')[:100].replace('\n', ' ').replace('\r', '') if r.get('text') else '无法读取'
+
+            full_text = r.get('text', '') if r.get('text') else '无法读取'
+            # 限制预览文本长度（防止超长）
+            if len(full_text) > 5000:
+                full_text = full_text[:5000] + '\n... (内容过多，仅显示前5000字符)'
+            full_text_esc = html_mod.escape(full_text)
+
+            # 字符数提示
+            preview_span = f'<span class="text-muted">({len(r.get("text", ""))}字符)</span>' if r.get('text') else ''
             note = r.get('note', '')
-            html += f"<tr><td>{r['path']}</td><td>{r['file_type']}</td><td>{lines_str}</td><td>{preview}...</td><td>{note}</td></tr>"
+            btn_text = "查看详情" if r['leak_lines'] else "展开"
+
+            # 按钮：内联onclick切换同级的div显示
+            btn_html = (
+                f'<button class="btn btn-sm btn-outline-info" type="button" '
+                f'onclick="var d=this.nextElementSibling;'
+                f'd.style.display=d.style.display===\'none\'?\'block\':\'none\';">'
+                f'{btn_text} {preview_span}</button>'
+            )
+            # 内容区域，初始隐藏
+            content_html = (
+                '<div style="display:none; margin-top:5px;">'
+                '<div style="border:1px solid #ddd; border-radius:5px; padding:8px; '
+                'max-height:300px; overflow-y:auto; background:#fafafa;">'
+                f'<pre style="white-space: pre-wrap; word-wrap: break-word; margin:0;">{full_text_esc}</pre>'
+                '</div></div>'
+            )
+
+            html += f"""
+            <tr>
+                <td>{r['path']}</td>
+                <td>{r['file_type']}</td>
+                <td>{lines_str}</td>
+                <td>{btn_html}{content_html}</td>
+                <td>{note}</td>
+            </tr>
+            """
         html += "</tbody></table>"
         return html
