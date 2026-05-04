@@ -187,13 +187,13 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
                 names = z.namelist()
 
                 if 'word/document.xml' in names:
-                    print(f"  📖 检测为 docx 文件")
+                    #print(f"  📖 检测为 docx 文件")
                     return parse_docx(data)
                 elif 'xl/workbook.xml' in names:
-                    print(f"  📖 检测为 xlsx 文件")
+                    #print(f"  📖 检测为 xlsx 文件")
                     return parse_xlsx(data)
                 elif 'ppt/presentation.xml' in names:
-                    print(f"  📖 检测为 pptx 文件")
+                    #print(f"  📖 检测为 pptx 文件")
                     return parse_pptx(data)
         except Exception as e:
             print(f"  ⚠️ Office 文件解析失败: {e}")
@@ -201,16 +201,16 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
     # --- 旧格式 Office (OLE2) ---
     # OLE2 文件的魔数是前8字节: D0 CF 11 E0 A1 B1 1A E1
     if len(data) >= 8 and data[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1':
-        print(f"  📖 检测为旧版 Office 文件（根据扩展名: {ext}）")
+        #print(f"  📖 检测为旧版 Office 文件（根据扩展名: {ext}）")
 
         if ext == '.doc':
-            print("  🔄 使用旧版 doc 解析器")
+            #print("  🔄 使用旧版 doc 解析器")
             return parse_doc(data)
         elif ext == '.xls':
-            print("  🔄 使用旧版 xls 解析器")
+            #print("  🔄 使用旧版 xls 解析器")
             return parse_xls(data)
         elif ext == '.ppt':
-            print("  🔄 使用旧版 ppt 解析器")
+            #print("  🔄 使用旧版 ppt 解析器")
             return parse_ppt(data)
         else:
             # 没有扩展名时，尝试自动检测
@@ -313,7 +313,6 @@ class FileCheckerModule(BaseChecker):
 
             return self._build_html_result(results)
 
-        # ------ 方式2：文件上传（支持 webkitdirectory）------
         @app.post("/check/file/upload", response_class=HTMLResponse)
         async def check_file_upload(files: List[UploadFile] = File(...)):
             detector = LeakDetector()
@@ -321,15 +320,30 @@ class FileCheckerModule(BaseChecker):
             for file in files:
                 content = await file.read()
                 text = read_text_from_bytes(content, file.filename)
-                # print(f"  🔍 提取的前200字符: {text[:200]!r}")  # 调试用
-                leak_lines = detector.check_text(text) if text else []
+                # ========== 新增调试 ==========
+                # print(f"\n=== 调试: {file.filename} ===")
+                # print(f"  detector.keywords = {detector.keywords}")
+                # print(f"  text 前200字符: {text[:200]!r}")
+                # lines = text.split('\n')
+                # print(f"  行数: {len(lines)}")
+                # for i, line in enumerate(lines, 1):
+                #     for kw in detector.keywords:
+                #         found = kw in line
+                #         if found:
+                #             print(f"  行{i}: 找到关键词 '{kw}'")
+                #             break
+                #     else:
+                #         if i <= 3:  # 只打印前3行
+                #             print(f"  行{i} 无匹配, 内容片段: {line[:80]!r}")
+                # ==============================
+                leak_lines = detector.check_text(text)
+                #print(f"  leak_lines 最终返回: {leak_lines}")
                 results.append({
                     'path': file.filename,
                     'leak_lines': leak_lines,
                     'file_type': guess_file_type(content, is_bytes=True),
                     'note': '' if text else '无法读取文本内容'
                 })
-
             return self._build_html_result(results)
 
     @staticmethod

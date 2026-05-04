@@ -1,9 +1,8 @@
-import zipfile
-import xml.etree.ElementTree as ET
-from io import BytesIO
-import re
 import olefile
-
+import zipfile
+from io import BytesIO
+import xml.etree.ElementTree as ET
+import re
 # ==================== Office 文件解析核心函数 ====================
 
 
@@ -96,64 +95,120 @@ def parse_xlsx(content: bytes) -> str:
         return ''
 
 
+
+
+
 def parse_pptx(content: bytes) -> str:
     """
-    解析 .pptx 文件，提取所有幻灯片中的文本（精确到段落和换行）
+    解析 .pptx 文件：
+    - 保证 slide 顺序正确
+    - 提取 shape / group / table / notes 文本
+    - 保留段落与换行结构
     """
     try:
-        text_parts = []
         with zipfile.ZipFile(BytesIO(content)) as z:
-            # 读取所有幻灯片文件
-            for name in sorted(z.namelist()):
-                if name.startswith('ppt/slides/slide') and name.endswith('.xml'):
-                    slide_xml = z.read(name)
+            ns = {
+                'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+                'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+            }
+
+            # ---------- 工具函数 ----------
+            def extract_text_from_txBody(txBody):
+                """提取 txBody 中的文本"""
+                texts = []
+                for para in txBody.iter(f'{{{ns["a"]}}}p'):
+                    parts = []
+                    for node in para:
+                        tag = node.tag.split('}')[-1]
+
+                        if tag == 'r':  # 普通文本
+                            t = node.find(f'{{{ns["a"]}}}t')
+                            if t is not None and t.text:
+                                parts.append(t.text)
+
+                        elif tag == 'br':  # 手动换行
+                            parts.append('\n')
+
+                        elif tag == 'fld':  # 字段
+                            t = node.find(f'{{{ns["a"]}}}t')
+                            if t is not None and t.text:
+                                parts.append(t.text)
+
+                    if parts:
+                        texts.append(''.join(parts))
+                return texts
+
+            def extract_from_shape(sp):
+                """递归处理 shape / group"""
+                results = []
+
+                # 普通文本框
+                txBody = sp.find(f'.//{{{ns["p"]}}}txBody')
+                if txBody is not None:
+                    results.extend(extract_text_from_txBody(txBody))
+
+                # 表格文本
+                for tbl in sp.iter(f'{{{ns["a"]}}}tbl'):
+                    for cell in tbl.iter(f'{{{ns["a"]}}}tc'):
+                        txBody = cell.find(f'{{{ns["a"]}}}txBody')
+                        if txBody is not None:
+                            results.extend(extract_text_from_txBody(txBody))
+
+                return results
+
+            def natural_key(name):
+                """按 slide1, slide2, slide10 正确排序"""
+                return [
+                    int(text) if text.isdigit() else text
+                    for text in re.split(r'(\d+)', name)
+                ]
+
+            # ---------- 主流程 ----------
+            slide_files = sorted(
+                [n for n in z.namelist() if n.startswith('ppt/slides/slide') and n.endswith('.xml')],
+                key=natural_key
+            )
+
+            all_text = []
+
+            for idx, slide_name in enumerate(slide_files, 1):
+                try:
+                    root = ET.fromstring(z.read(slide_name))
+                except ET.ParseError:
+                    continue
+
+                slide_texts = []
+
+                # 1️⃣ 处理所有 shape（包括 group 内的）
+                for sp in root.iter(f'{{{ns["p"]}}}sp'):
+                    slide_texts.extend(extract_from_shape(sp))
+
+                # 2️⃣ 处理 group shape（嵌套）
+                for grp in root.iter(f'{{{ns["p"]}}}grpSp'):
+                    for sp in grp.iter(f'{{{ns["p"]}}}sp'):
+                        slide_texts.extend(extract_from_shape(sp))
+
+                # 3️⃣ 处理备注（notes）
+                notes_name = slide_name.replace('slides/slide', 'notesSlides/notesSlide')
+                if notes_name in z.namelist():
                     try:
-                        root = ET.fromstring(slide_xml)
-                    except ET.ParseError:
-                        continue
+                        notes_root = ET.fromstring(z.read(notes_name))
+                        for sp in notes_root.iter(f'{{{ns["p"]}}}sp'):
+                            slide_texts.extend(extract_from_shape(sp))
+                    except:
+                        pass
 
-                    # 命名空间映射（避免手动拼串）
-                    ns = {
-                        'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
-                        'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
-                        'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
-                    }
+                # 去重 + 清理空行
+                slide_texts = [t.strip() for t in slide_texts if t.strip()]
 
-                    slide_texts = []
-                    # 遍历所有形状（p:sp）
-                    for sp in root.iter(f'{{{ns["p"]}}}sp'):
-                        txBody = sp.find(f'{{{ns["p"]}}}txBody')
-                        if txBody is None:
-                            continue
-                        # 遍历段落（a:p）
-                        for para_elem in txBody.iter(f'{{{ns["a"]}}}p'):
-                            para_parts = []
-                            for child in para_elem:
-                                local_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-                                if local_tag == 'r':
-                                    # 文本运行
-                                    t = child.find(f'{{{ns["a"]}}}t')
-                                    if t is not None and t.text:
-                                        para_parts.append(t.text)
-                                elif local_tag == 'br':
-                                    # 手动换行
-                                    para_parts.append('\n')
-                                elif local_tag == 'fld':
-                                    # 字段（如日期、页码等）
-                                    t = child.find(f'{{{ns["a"]}}}t')
-                                    if t is not None and t.text:
-                                        para_parts.append(t.text)
-                            if para_parts:
-                                slide_texts.append(''.join(para_parts))
+                if slide_texts:
+                    all_text.append(f'===== Slide {idx} =====')
+                    all_text.extend(slide_texts)
 
-                    if slide_texts:
-                        text_parts.append(f'[Slide {name}]')
-                        text_parts.extend(slide_texts)
-
-        return '\n'.join(text_parts)
+            return '\n'.join(all_text)
 
     except Exception as e:
-        print(f"  ⚠️ 解析 pptx 失败: {e}")
+        print(f"⚠️ 解析 pptx 失败: {e}")
         return ''
 
 
@@ -243,7 +298,7 @@ def parse_xls(content: bytes) -> str:
             text_parts.append('')  # 空行分隔
 
         result = '\n'.join(text_parts) if text_parts else ''
-        print(f"  ✅ 成功提取 xls 文本，共 {len(result)} 字符")
+        # print(f"  ✅ 成功提取 xls 文本，共 {len(result)} 字符")
         return result
 
     except ImportError:
@@ -255,107 +310,59 @@ def parse_xls(content: bytes) -> str:
 
 
 # ==================== 旧版 .ppt 解析 ====================
+
 def parse_ppt(content: bytes) -> str:
+    pptx_bytes = convert_ppt_to_pptx(content)
+    return parse_pptx(pptx_bytes)
+
+
+import subprocess
+import tempfile
+from pathlib import Path
+
+
+def convert_ppt_to_pptx(content: bytes, timeout=20) -> bytes:
     """
-    解析旧版 .ppt 文件，提取所有幻灯片文本
-    通过查找 PPT 二进制流中的 TextCharsAtom/TextBytesAtom 记录来提取
+    使用 LibreOffice 将 .ppt 转为 .pptx
+    返回 pptx 的 bytes
     """
-    try:
-        ole = olefile.OleFileIO(BytesIO(content))
-        text_parts = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = Path(tmpdir) / "input.ppt"
+        output_dir = Path(tmpdir)
 
-        if ole.exists('PowerPoint Document'):
-            data = ole.openstream('PowerPoint Document').read()
+        # 写入 ppt
+        with open(input_path, "wb") as f:
+            f.write(content)
 
-            # 方法1: 查找 Null 终止的 UTF-16LE 字符串
-            # 这是 PPT 中文本的标准存储方式
-            i = 2
-            while i < len(data) - 3:
-                # 跳过大量 0x00 字节
-                if data[i] == 0 and data[i + 1] == 0:
-                    i += 2
-                    continue
+        # 调用 libreoffice
+        cmd = [
+            "soffice",  # Linux / Mac
+            "--headless",
+            "--convert-to", "pptx",
+            "--outdir", str(output_dir),
+            str(input_path)
+        ]
 
-                # 读取 UTF-16LE 字符串直到 00 00
-                start = i
-                str_len = 0
-                while i < len(data) - 1:
-                    if data[i] == 0 and data[i + 1] == 0:
-                        break
-                    i += 2
-                    str_len += 1
-                    if str_len > 200:  # 保护，避免无限循环
-                        break
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout
+            )
+        except FileNotFoundError:
+            raise RuntimeError("未找到 LibreOffice（soffice），请先安装")
 
-                chunk = data[start:i]
-                if len(chunk) >= 4:  # 至少2个字符
-                    try:
-                        raw = chunk.decode('utf-16le', errors='ignore')
-                        text = raw.strip('\x00').strip()
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"转换失败:\n{result.stderr.decode(errors='ignore')}"
+            )
 
-                        # 过滤：必须包含英文字母或中文
-                        has_alpha = any('a' <= c.lower() <= 'z' for c in text)
-                        has_cjk = any('\u4e00' <= c <= '\u9fff' for c in text)
+        # 找输出文件
+        output_path = output_dir / "input.pptx"
 
-                        if has_alpha or has_cjk:
-                            # 进一步过滤：排除纯标点/数字
-                            meaningful = sum(1 for c in text
-                                             if c.isalpha() or '\u4e00' <= c <= '\u9fff')
-                            if meaningful >= 2:
-                                text_parts.append(text)
-                    except:
-                        pass
+        if not output_path.exists():
+            raise RuntimeError("转换成功但未找到输出文件")
 
-                i += 2  # 移动到下一个可能的起点
-
-            # 方法2: 使用正则从整体解码中提取有意义的文本
-            try:
-                all_text = data.decode('utf-16le', errors='ignore')
-
-                # 提取英文单词（至少3个字母）
-                eng_words = re.findall(r'\b[A-Za-z]{3,}\b', all_text)
-
-                # 提取中文句子（至少3个汉字，可能含标点）
-                cjk_sentences = re.findall(
-                    r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]{3,}', all_text
-                )
-
-                # 提取数字+字母混合（如版本号 "V1.2.3"）
-                mixed = re.findall(r'\b[A-Za-z0-9._-]{3,}\b', all_text)
-
-                for word in eng_words + cjk_sentences + mixed:
-                    word = word.strip()
-                    if len(word) >= 2 and word not in text_parts:
-                        text_parts.append(word)
-            except:
-                pass
-
-        ole.close()
-
-        # 最终去重并排序（保留出现顺序）
-        seen = set()
-        result_parts = []
-        for t in text_parts:
-            t = t.strip()
-            if t and t not in seen:
-                # 再次过滤常见的二进制伪文本
-                # 排除全是高低位字节组成的中文（如 挀漀洀...）
-                cjk_count = sum(1 for c in t if '\u4e00' <= c <= '\u9fff')
-                ascii_count = sum(1 for c in t if 'a' <= c.lower() <= 'z')
-
-                # 如果中文占了绝大部分，但每个中文看起来像随机的（不是常见字）
-                # 保留包含英文字母的文本
-                if ascii_count > 0 or cjk_count >= 2:
-                    seen.add(t)
-                    result_parts.append(t)
-
-        result = '\n'.join(result_parts) if result_parts else ''
-        print(f"  ✅ 成功提取 ppt 文本，共 {len(result)} 字符")
-        return result
-
-    except ImportError:
-        print("  ⚠️ 需要安装 olefile: pip install olefile")
-        return ''
-    except Exception as e:
-        print(f"  ⚠️ 解析 ppt 失败: {e}")
-        return ''
+        with open(output_path, "rb") as f:
+            return f.read()
