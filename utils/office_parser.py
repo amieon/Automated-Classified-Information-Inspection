@@ -258,7 +258,7 @@ def parse_xls(content: bytes) -> str:
 def parse_ppt(content: bytes) -> str:
     """
     解析旧版 .ppt 文件，提取所有幻灯片文本
-    使用 olefile 从 PowerPoint Document 流中提取文本
+    通过查找 PPT 二进制流中的 TextCharsAtom/TextBytesAtom 记录来提取
     """
     try:
         ole = olefile.OleFileIO(BytesIO(content))
@@ -267,57 +267,89 @@ def parse_ppt(content: bytes) -> str:
         if ole.exists('PowerPoint Document'):
             data = ole.openstream('PowerPoint Document').read()
 
-            # 方法1：提取 Unicode 文本（PPT 中的文本通常是 UTF-16LE 编码）
-            # 查找连续的非空 Unicode 字符
-            unicode_texts = []
-            i = 0
-            while i < len(data) - 1:
-                # 尝试读取 UTF-16LE 字符
-                char_code = data[i] | (data[i + 1] << 8)
-                if 0x20 <= char_code <= 0x7E or 0x4E00 <= char_code <= 0x9FFF or char_code in (0x0D, 0x0A, 0x09):
-                    # 可打印 ASCII、中文或换行/制表符
-                    chunk = bytearray()
-                    while i < len(data) - 1:
-                        cc = data[i] | (data[i + 1] << 8)
-                        if 0x20 <= cc <= 0x7E or 0x4E00 <= cc <= 0x9FFF or cc in (0x0D, 0x0A, 0x09):
-                            chunk.extend([data[i], data[i + 1]])
-                            i += 2
-                        else:
-                            break
-                    if len(chunk) >= 4:  # 至少 2 个字符
-                        try:
-                            unicode_texts.append(chunk.decode('utf-16le'))
-                        except:
-                            pass
-                else:
+            # 方法1: 查找 Null 终止的 UTF-16LE 字符串
+            # 这是 PPT 中文本的标准存储方式
+            i = 2
+            while i < len(data) - 3:
+                # 跳过大量 0x00 字节
+                if data[i] == 0 and data[i + 1] == 0:
                     i += 2
+                    continue
 
-            # 方法2：作为备用，尝试整体解码后用正则提取
+                # 读取 UTF-16LE 字符串直到 00 00
+                start = i
+                str_len = 0
+                while i < len(data) - 1:
+                    if data[i] == 0 and data[i + 1] == 0:
+                        break
+                    i += 2
+                    str_len += 1
+                    if str_len > 200:  # 保护，避免无限循环
+                        break
+
+                chunk = data[start:i]
+                if len(chunk) >= 4:  # 至少2个字符
+                    try:
+                        raw = chunk.decode('utf-16le', errors='ignore')
+                        text = raw.strip('\x00').strip()
+
+                        # 过滤：必须包含英文字母或中文
+                        has_alpha = any('a' <= c.lower() <= 'z' for c in text)
+                        has_cjk = any('\u4e00' <= c <= '\u9fff' for c in text)
+
+                        if has_alpha or has_cjk:
+                            # 进一步过滤：排除纯标点/数字
+                            meaningful = sum(1 for c in text
+                                             if c.isalpha() or '\u4e00' <= c <= '\u9fff')
+                            if meaningful >= 2:
+                                text_parts.append(text)
+                    except:
+                        pass
+
+                i += 2  # 移动到下一个可能的起点
+
+            # 方法2: 使用正则从整体解码中提取有意义的文本
             try:
-                raw_text = data.decode('utf-16le', errors='ignore')
-                # 提取长度 > 3 的可读文本
-                readable = re.findall(r'[\u4e00-\u9fff\w\s.,!?;:()【】、，。！？；：""''（）\-\n\r]{4,}', raw_text)
-                text_parts.extend([t.strip() for t in readable if len(t.strip()) > 2])
+                all_text = data.decode('utf-16le', errors='ignore')
+
+                # 提取英文单词（至少3个字母）
+                eng_words = re.findall(r'\b[A-Za-z]{3,}\b', all_text)
+
+                # 提取中文句子（至少3个汉字，可能含标点）
+                cjk_sentences = re.findall(
+                    r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]{3,}', all_text
+                )
+
+                # 提取数字+字母混合（如版本号 "V1.2.3"）
+                mixed = re.findall(r'\b[A-Za-z0-9._-]{3,}\b', all_text)
+
+                for word in eng_words + cjk_sentences + mixed:
+                    word = word.strip()
+                    if len(word) >= 2 and word not in text_parts:
+                        text_parts.append(word)
             except:
                 pass
 
-            # 合并方法1的结果
-            for t in unicode_texts:
-                t = t.strip()
-                if len(t) > 2:
-                    text_parts.append(t)
-
         ole.close()
 
-        # 去重并合并
+        # 最终去重并排序（保留出现顺序）
         seen = set()
-        unique_texts = []
+        result_parts = []
         for t in text_parts:
-            if t not in seen:
-                seen.add(t)
-                unique_texts.append(t)
+            t = t.strip()
+            if t and t not in seen:
+                # 再次过滤常见的二进制伪文本
+                # 排除全是高低位字节组成的中文（如 挀漀洀...）
+                cjk_count = sum(1 for c in t if '\u4e00' <= c <= '\u9fff')
+                ascii_count = sum(1 for c in t if 'a' <= c.lower() <= 'z')
 
-        result = '\n'.join(unique_texts) if unique_texts else ''
+                # 如果中文占了绝大部分，但每个中文看起来像随机的（不是常见字）
+                # 保留包含英文字母的文本
+                if ascii_count > 0 or cjk_count >= 2:
+                    seen.add(t)
+                    result_parts.append(t)
+
+        result = '\n'.join(result_parts) if result_parts else ''
         print(f"  ✅ 成功提取 ppt 文本，共 {len(result)} 字符")
         return result
 

@@ -300,6 +300,7 @@ class FileCheckerModule(BaseChecker):
                     for file in files:
                         fp = Path(root) / file
                         text = read_text_from_file(str(fp))
+
                         leak_lines = detector.check_text(text) if text else []
                         results.append({
                             'path': str(fp),
@@ -320,6 +321,7 @@ class FileCheckerModule(BaseChecker):
             for file in files:
                 content = await file.read()
                 text = read_text_from_bytes(content, file.filename)
+                # print(f"  🔍 提取的前200字符: {text[:200]!r}")  # 调试用
                 leak_lines = detector.check_text(text) if text else []
                 results.append({
                     'path': file.filename,
