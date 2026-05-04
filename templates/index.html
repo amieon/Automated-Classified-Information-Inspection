@@ -174,24 +174,186 @@
                         </form>
                     </div>
 
-                    <!-- 方式2：上传文件/文件夹 -->
+                    <!-- 方式2：上传文件/文件夹（支持 Chrome/Edge 等浏览器） -->
                     <div>
-                        <h5 class="text-muted">🔹 上传文件或文件夹（支持 Chrome/Edge 等浏览器）</h5>
+                        <h5 class="text-muted">🔹 上传文件或文件夹</h5>
                         <form id="uploadForm" action="/check/file/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
-                                    <p class="mt-1">点击选择文件或拖拽文件夹到此区域</p>
+                                    <p class="mt-1">点击下方按钮选择文件或文件夹</p>
                                 </div>
-                                <input type="file" name="files" class="form-control" multiple webkitdirectory required>
+
+                                <!-- 选择模式切换按钮组 -->
+                                <div class="btn-group mb-3" role="group">
+                                    <button type="button" class="btn btn-outline-primary active" id="modeFileBtn" onclick="switchMode('file')">
+                                        <i class="bi bi-file-earmark"></i> 选择文件
+                                    </button>
+                                    <button type="button" class="btn btn-outline-primary" id="modeFolderBtn" onclick="switchMode('folder')">
+                                        <i class="bi bi-folder"></i> 选择文件夹
+                                    </button>
+                                </div>
+
+                                <!-- 隐藏的两个 input -->
+                                <!-- 文件选择（支持多选） -->
+                                <input type="file" id="fileInput" name="files" class="form-control" multiple
+                                       accept=".txt,.md,.py,.java,.js,.ts,.html,.css,.json,.xml,.yml,.yaml,.ini,.cfg,.conf,.csv,.log,.doc,.docx,.pdf"
+                                       style="display: none;" onchange="onFileSelected(event)">
+
+                                <!-- 文件夹选择 -->
+                                <input type="file" id="folderInput" name="files" class="form-control"
+                                       webkitdirectory multiple style="display: none;" onchange="onFileSelected(event)">
+
+                                <!-- 已选文件显示区域 -->
+                                <div id="fileInfo" class="mt-2 text-start" style="display: none;">
+                                    <div class="alert alert-info py-2 px-3 mb-0">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span><i class="bi bi-check-circle"></i> 已选择 <span id="fileCount">0</span> 个文件</span>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles()">
+                                                <i class="bi bi-x"></i> 清除全部
+                                            </button>
+                                        </div>
+                                        <!-- 文件列表，可滚动显示 -->
+                                        <div id="fileList" style="max-height: 200px; overflow-y: auto; margin-top: 8px; font-size: 0.9rem;">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
+
                             <div class="text-center mt-3">
-                                <button type="submit" class="btn check-btn text-white px-4">
+                                <button type="submit" class="btn check-btn text-white px-4" id="submitBtn" disabled>
                                     <i class="bi bi-upload"></i> 上传并检查
                                 </button>
                             </div>
                         </form>
                     </div>
+
+                    <script>
+                    // ==================== 全局变量 ====================
+                    let currentMode = 'file';  // 'file' 或 'folder'
+                    let selectedFiles = [];    // 累计存储所有选中的文件
+
+                    // ==================== 模式切换 ====================
+                    function switchMode(mode) {
+                        currentMode = mode;
+
+                        // 切换按钮样式
+                        document.getElementById('modeFileBtn').classList.toggle('active', mode === 'file');
+                        document.getElementById('modeFolderBtn').classList.toggle('active', mode === 'folder');
+
+                        // 触发文件选择器（累计选择，不清除已有）
+                        if (mode === 'file') {
+                            document.getElementById('fileInput').click();
+                        } else {
+                            document.getElementById('folderInput').click();
+                        }
+                    }
+
+                    // ==================== 文件选择处理（累计追加）====================
+                    function onFileSelected(event) {
+                        const files = event.target.files;
+                        if (!files || files.length === 0) return;
+
+                        // 将新选择的文件逐个追加到已选列表（去重：通过文件名+大小+修改时间简单去重）
+                        Array.from(files).forEach(newFile => {
+                            const exists = selectedFiles.some(existing =>
+                                existing.name === newFile.name &&
+                                existing.size === newFile.size &&
+                                existing.lastModified === newFile.lastModified
+                            );
+                            if (!exists) {
+                                selectedFiles.push(newFile);
+                            }
+                        });
+
+                        // 清空 input value 以便重新选择相同文件能触发 change
+                        event.target.value = '';
+
+                        updateFileInfo();
+                    }
+
+                    // ==================== 更新显示文件信息 ====================
+                    function updateFileInfo() {
+                        const infoDiv = document.getElementById('fileInfo');
+                        const countSpan = document.getElementById('fileCount');
+                        const fileListDiv = document.getElementById('fileList');
+                        const submitBtn = document.getElementById('submitBtn');
+
+                        if (selectedFiles.length > 0) {
+                            infoDiv.style.display = 'block';
+                            countSpan.textContent = selectedFiles.length;
+
+                            // 生成文件名列表（文件夹模式显示相对路径，文件模式显示文件名）
+                            const names = selectedFiles.map((file, index) => {
+                                const displayName = file.webkitRelativePath || file.name; // 优先显示相对路径
+                                return `<span class="d-block text-truncate" title="${displayName}">${index + 1}. ${displayName}</span>`;
+                            }).join('');
+                            fileListDiv.innerHTML = names;
+
+                            submitBtn.disabled = false;
+                        } else {
+                            infoDiv.style.display = 'none';
+                            submitBtn.disabled = true;
+                        }
+                    }
+
+                    // ==================== 清除所有已选文件 ====================
+                    function clearFiles() {
+                        selectedFiles = [];
+                        document.getElementById('fileInput').value = '';
+                        document.getElementById('folderInput').value = '';
+                        updateFileInfo();
+                    }
+
+                    // ==================== 表单提交 ====================
+                    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+                        if (selectedFiles.length === 0) {
+                            e.preventDefault();
+                            alert('请先选择文件或文件夹！');
+                            return;
+                        }
+
+                        // 创建 FormData 并添加所有文件
+                        const formData = new FormData();
+                        selectedFiles.forEach(file => {
+                            // 使用 webkitRelativePath 保留文件夹结构，否则用文件名
+                            const path = file.webkitRelativePath || file.name;
+                            formData.append('files', file, path);
+                        });
+
+                        // 使用 fetch 提交（不刷新页面）
+                        e.preventDefault();
+
+                        const submitBtn = document.getElementById('submitBtn');
+                        submitBtn.disabled = true;
+                        submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 检查中...';
+
+                        fetch('/check/file/upload', {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(response => response.text())
+                        .then(html => {
+                            // 将结果渲染到 iframe 或者页面某个区域
+                            const resultFrame = document.getElementById('resultFrame');
+                            if (resultFrame) {
+                                resultFrame.srcdoc = html;
+                            } else {
+                                // 如果没有 iframe，直接替换页面内容
+                                document.open();
+                                document.write(html);
+                                document.close();
+                            }
+                        })
+                        .catch(error => {
+                            alert('上传失败：' + error.message);
+                        })
+                        .finally(() => {
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-upload"></i> 上传并检查';
+                        });
+                    });
+                    </script>
                 </div>
             </div>
 
