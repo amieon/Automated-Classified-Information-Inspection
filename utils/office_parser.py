@@ -1,7 +1,8 @@
 import zipfile
 import xml.etree.ElementTree as ET
 from io import BytesIO
-
+import re
+import olefile
 
 # ==================== Office 文件解析核心函数 ====================
 
@@ -153,4 +154,176 @@ def parse_pptx(content: bytes) -> str:
 
     except Exception as e:
         print(f"  ⚠️ 解析 pptx 失败: {e}")
+        return ''
+
+
+# ==================== 旧版 .doc 解析 ====================
+def parse_doc(content: bytes) -> str:
+    """
+    解析旧版 .doc 文件，提取文本内容
+    使用 olefile 从 WordDocument 流中提取 Unicode 文本
+    """
+    try:
+        ole = olefile.OleFileIO(BytesIO(content))
+
+        text_parts = []
+
+        # Word 文档的文本存储在 WordDocument 流中，以 UTF-16LE 编码
+        if ole.exists('WordDocument'):
+            data = ole.openstream('WordDocument').read()
+
+            # 用 UTF-16LE 解码，忽略错误
+            raw_text = data.decode('utf-16le', errors='ignore')
+
+            # 提取有效文本（过滤掉乱码和单个字符）
+            lines = []
+            for line in raw_text.split('\x00'):
+                line = line.strip()
+                # 保留长度 > 2 且包含可读字符的文本
+                if len(line) > 2:
+                    # 检查是否包含字母、数字或中文
+                    if any(c.isalpha() or '\u4e00' <= c <= '\u9fff' for c in line):
+                        lines.append(line)
+
+            if lines:
+                text_parts.extend(lines)
+
+        # 也尝试从 0Table 或 1Table 流中提取
+        for stream_name in ['0Table', '1Table']:
+            if ole.exists(stream_name):
+                try:
+                    table_data = ole.openstream(stream_name).read()
+                    decoded = table_data.decode('utf-16le', errors='ignore')
+                    readable = re.findall(r'[\u4e00-\u9fff\w\s.,!?;:()【】、，。！？；：""''（）\-\n\r]{3,}', decoded)
+                    text_parts.extend([t.strip() for t in readable if len(t.strip()) > 2])
+                except:
+                    pass
+
+        ole.close()
+
+        result = '\n'.join(text_parts) if text_parts else ''
+        print(f"  ✅ 成功提取 doc 文本，共 {len(result)} 字符")
+        return result
+
+    except ImportError:
+        print("  ⚠️ 需要安装 olefile: pip install olefile")
+        return ''
+    except Exception as e:
+        print(f"  ⚠️ 解析 doc 失败: {e}")
+        return ''
+
+
+# ==================== 旧版 .xls 解析 ====================
+def parse_xls(content: bytes) -> str:
+    """
+    解析旧版 .xls 文件，提取所有单元格文本
+    使用 xlrd 库（版本 1.2.0）
+    """
+    try:
+        import xlrd
+
+        workbook = xlrd.open_workbook(file_contents=content)
+        text_parts = []
+
+        for sheet_idx in range(workbook.nsheets):
+            sheet = workbook.sheet_by_index(sheet_idx)
+            sheet_name = sheet.name
+            text_parts.append(f"【工作表: {sheet_name}】")
+
+            for row_idx in range(sheet.nrows):
+                row_texts = []
+                for col_idx in range(sheet.ncols):
+                    cell = sheet.cell(row_idx, col_idx)
+                    if cell.ctype != xlrd.XL_CELL_EMPTY and cell.value:
+                        row_texts.append(str(cell.value))
+
+                if row_texts:
+                    text_parts.append('\t'.join(row_texts))
+
+            text_parts.append('')  # 空行分隔
+
+        result = '\n'.join(text_parts) if text_parts else ''
+        print(f"  ✅ 成功提取 xls 文本，共 {len(result)} 字符")
+        return result
+
+    except ImportError:
+        print("  ⚠️ 需要安装 xlrd==1.2.0: pip install xlrd==1.2.0")
+        return ''
+    except Exception as e:
+        print(f"  ⚠️ 解析 xls 失败: {e}")
+        return ''
+
+
+# ==================== 旧版 .ppt 解析 ====================
+def parse_ppt(content: bytes) -> str:
+    """
+    解析旧版 .ppt 文件，提取所有幻灯片文本
+    使用 olefile 从 PowerPoint Document 流中提取文本
+    """
+    try:
+        ole = olefile.OleFileIO(BytesIO(content))
+        text_parts = []
+
+        if ole.exists('PowerPoint Document'):
+            data = ole.openstream('PowerPoint Document').read()
+
+            # 方法1：提取 Unicode 文本（PPT 中的文本通常是 UTF-16LE 编码）
+            # 查找连续的非空 Unicode 字符
+            unicode_texts = []
+            i = 0
+            while i < len(data) - 1:
+                # 尝试读取 UTF-16LE 字符
+                char_code = data[i] | (data[i + 1] << 8)
+                if 0x20 <= char_code <= 0x7E or 0x4E00 <= char_code <= 0x9FFF or char_code in (0x0D, 0x0A, 0x09):
+                    # 可打印 ASCII、中文或换行/制表符
+                    chunk = bytearray()
+                    while i < len(data) - 1:
+                        cc = data[i] | (data[i + 1] << 8)
+                        if 0x20 <= cc <= 0x7E or 0x4E00 <= cc <= 0x9FFF or cc in (0x0D, 0x0A, 0x09):
+                            chunk.extend([data[i], data[i + 1]])
+                            i += 2
+                        else:
+                            break
+                    if len(chunk) >= 4:  # 至少 2 个字符
+                        try:
+                            unicode_texts.append(chunk.decode('utf-16le'))
+                        except:
+                            pass
+                else:
+                    i += 2
+
+            # 方法2：作为备用，尝试整体解码后用正则提取
+            try:
+                raw_text = data.decode('utf-16le', errors='ignore')
+                # 提取长度 > 3 的可读文本
+                readable = re.findall(r'[\u4e00-\u9fff\w\s.,!?;:()【】、，。！？；：""''（）\-\n\r]{4,}', raw_text)
+                text_parts.extend([t.strip() for t in readable if len(t.strip()) > 2])
+            except:
+                pass
+
+            # 合并方法1的结果
+            for t in unicode_texts:
+                t = t.strip()
+                if len(t) > 2:
+                    text_parts.append(t)
+
+        ole.close()
+
+        # 去重并合并
+        seen = set()
+        unique_texts = []
+        for t in text_parts:
+            if t not in seen:
+                seen.add(t)
+                unique_texts.append(t)
+
+        result = '\n'.join(unique_texts) if unique_texts else ''
+        print(f"  ✅ 成功提取 ppt 文本，共 {len(result)} 字符")
+        return result
+
+    except ImportError:
+        print("  ⚠️ 需要安装 olefile: pip install olefile")
+        return ''
+    except Exception as e:
+        print(f"  ⚠️ 解析 ppt 失败: {e}")
         return ''

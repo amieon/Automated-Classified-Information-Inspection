@@ -9,7 +9,7 @@ from utils.leak_detector import LeakDetector
 import zipfile
 from io import BytesIO
 from utils.office_parser import parse_xlsx, parse_docx, parse_pptx
-
+from utils.office_parser import parse_xls, parse_doc, parse_ppt
 
 # ==================== 文件类型识别（基于文件头） ====================
 FILE_SIGNATURES = {
@@ -172,18 +172,20 @@ def guess_file_type(data: bytes, filename: str = '', is_bytes: bool = False) -> 
 
     return 'binary'
 
+
 def read_text_from_bytes(data: bytes, filename: str = '') -> str:
     """
-    从字节数据中读取文本内容，支持多种文件格式
+    从字节数据中读取文本，自动检测文件类型
     """
-    if not data:
-        return ''
+    # 获取文件扩展名
+    ext = os.path.splitext(filename)[1].lower() if filename else ''
 
-    # 1. 检查是否是 Office 文件
+    # --- 新格式 Office (OpenXML) ---
     if data[:4] == b'PK\x03\x04':
         try:
             with zipfile.ZipFile(BytesIO(data)) as z:
                 names = z.namelist()
+
                 if 'word/document.xml' in names:
                     print(f"  📖 检测为 docx 文件")
                     return parse_docx(data)
@@ -196,45 +198,54 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
         except Exception as e:
             print(f"  ⚠️ Office 文件解析失败: {e}")
 
-    # 2. 再检查文件后缀（更精确）
-    if filename:
-        ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
-        if ext == 'docx':
-            print(f"  📖 按后缀识别为 docx")
-            return parse_docx(data)
-        elif ext == 'xlsx':
-            print(f"  📖 按后缀识别为 xlsx")
-            return parse_xlsx(data)
-        elif ext == 'pptx':
-            print(f"  📖 按后缀识别为 pptx")
-            return parse_pptx(data)
+    # --- 旧格式 Office (OLE2) ---
+    # OLE2 文件的魔数是前8字节: D0 CF 11 E0 A1 B1 1A E1
+    if len(data) >= 8 and data[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1':
+        print(f"  📖 检测为旧版 Office 文件（根据扩展名: {ext}）")
 
-    # 3. 原有的文本读取逻辑
+        if ext == '.doc':
+            print("  🔄 使用旧版 doc 解析器")
+            return parse_doc(data)
+        elif ext == '.xls':
+            print("  🔄 使用旧版 xls 解析器")
+            return parse_xls(data)
+        elif ext == '.ppt':
+            print("  🔄 使用旧版 ppt 解析器")
+            return parse_ppt(data)
+        else:
+            # 没有扩展名时，尝试自动检测
+            # 通过 OLE 中的流名称判断
+            try:
+                import olefile
+                ole = olefile.OleFileIO(BytesIO(data))
+                stream_names = ole.listdir()
+                all_streams = [item for sublist in stream_names for item in sublist]
+                ole.close()
+
+                if 'WordDocument' in all_streams:
+                    print("  🔄 根据流检测为 doc")
+                    return parse_doc(data)
+                elif 'Workbook' in all_streams or 'Book' in all_streams:
+                    print("  🔄 根据流检测为 xls")
+                    return parse_xls(data)
+                elif 'PowerPoint Document' in all_streams:
+                    print("  🔄 根据流检测为 ppt")
+                    return parse_ppt(data)
+            except ImportError:
+                print("  ⚠️ 需要安装 olefile: pip install olefile")
+                return ''
+            except Exception as e:
+                print(f"  ⚠️ OLE 检测失败: {e}")
+                return ''
+
+    # --- 纯文本文件 ---
     try:
-        text = data.decode('utf-8')
-        return text
+        return data.decode('utf-8')
     except UnicodeDecodeError:
-        pass
-
-    try:
-        text = data.decode('gbk')
-        return text
-    except UnicodeDecodeError:
-        pass
-
-    try:
-        text = data.decode('gb2312')
-        return text
-    except UnicodeDecodeError:
-        pass
-
-    try:
-        text = data.decode('utf-16')
-        return text
-    except UnicodeDecodeError:
-        pass
-
-    return ''
+        try:
+            return data.decode('gbk')
+        except:
+            return data.decode('utf-8', errors='ignore')
 
 
 def read_text_from_file(file_path: str) -> str:
