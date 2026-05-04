@@ -6,6 +6,10 @@ from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
 from utils.leak_detector import LeakDetector
+import zipfile
+from io import BytesIO
+from utils.office_parser import parse_xlsx, parse_docx, parse_pptx
+
 
 # ==================== 文件类型识别（基于文件头） ====================
 FILE_SIGNATURES = {
@@ -25,74 +29,119 @@ FILE_SIGNATURES = {
     # 注意：docx/xlsx/pptx 会先被 'zip' 匹配（PK\x03\x04）
     # txt 没有固定魔数，由 is_text_content() 判断
 }
+TEXT_EXTENSIONS = {
+    'txt', 'md', 'py', 'java', 'js', 'ts', 'html', 'css', 'json',
+    'xml', 'yml', 'yaml', 'ini', 'cfg', 'conf', 'csv', 'log', 'rtf',
+    'bat', 'sh', 'ps1', 'sql', 'rb', 'go', 'rs', 'cpp', 'c', 'h',
+    'hpp', 'php', 'pl', 'lua', 'dockerfile', 'gitignore', 'env',
+    'toml', 'cfg', 'ini', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'pdf'  # 若想把pdf也算作可读取的文本？实际pdf不能当纯文本，当然read_text_from_bytes会处理
+}
+# Office 文件魔数（文件头字节）
+OFFICE_MAGIC = {
+    b'PK\x03\x04': ['docx', 'xlsx', 'pptx'],  # ZIP 格式
+}
+# Word 文档的命名空间
+WORD_NS = {
+    'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+    'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+}
+# Excel 的命名空间
+EXCEL_NS = {
+    's': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+    'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+}
+# PPT 的命名空间
+PPT_NS = {
+    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+    'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+    'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+}
 
-def is_text_content(data: bytes, threshold: float = 0.9) -> bool:
+
+def is_text_content(data: bytes, filename: str = '') -> bool:
     """
-    判断字节数据是否为文本内容（支持 UTF-8 中文等）
-    方法：尝试用 UTF-8 解码，计算成功解码的比例
+    判断文件是否为可读文本文件或 Office 文档
     """
     if not data:
         return False
 
-    # 方法1：直接尝试 UTF-8 解码
+    # 检查 Office 文件魔数
+    if data[:4] == b'PK\x03\x04':
+        # 检查是否是 Office 文件（通过解压检查内容结构）
+        try:
+            with zipfile.ZipFile(BytesIO(data)) as z:
+                names = z.namelist()
+                # 检查是否有 Office 文件标记
+                if any(name in names for name in ['word/document.xml',
+                                                  'xl/workbook.xml',
+                                                  'ppt/presentation.xml']):
+                    return True
+                # 如果只有几个文件且不含 Office 标记，可能只是普通 ZIP
+                # 这里保守判断：包含上述标记才算 Office 文件
+        except:
+            pass
+
+    # 原有的文本检测逻辑
+    # 如果文件名有明确后缀
+    if filename:
+        ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        if ext in TEXT_EXTENSIONS:
+            return True
+
+    # 尝试检测是否为纯文本
     try:
-        data.decode('utf-8')
-        return True  # 完全解码成功，肯定是文本
-    except UnicodeDecodeError:
-        pass
+        # 检查是否包含空字节（文本文件通常不含）
+        if b'\x00' in data[:1000]:
+            return False
 
-    # 方法2：检查是否大部分是 ASCII + 常见控制字符
-    # 适用于纯英文文本
-    ascii_printable = sum(1 for byte in data if 32 <= byte <= 126 or byte in (9, 10, 13))
-    if ascii_printable >= len(data) * threshold:
-        return True
-
-    # 方法3：统计有效 UTF-8 序列的比例（处理混合内容）
-    valid_utf8_bytes = 0
-    i = 0
-    while i < len(data):
-        byte = data[i]
-        if byte <= 0x7F:
-            valid_utf8_bytes += 1
-            i += 1
-        elif 0xC2 <= byte <= 0xDF:
-            # 2字节 UTF-8
-            if i + 1 < len(data) and 0x80 <= data[i+1] <= 0xBF:
-                valid_utf8_bytes += 2
-                i += 2
-            else:
-                i += 1
-        elif 0xE0 <= byte <= 0xEF:
-            # 3字节 UTF-8（中文常用范围）
-            if i + 2 < len(data) and 0x80 <= data[i+1] <= 0xBF and 0x80 <= data[i+2] <= 0xBF:
-                valid_utf8_bytes += 3
-                i += 3
-            else:
-                i += 1
-        elif 0xF0 <= byte <= 0xF4:
-            # 4字节 UTF-8
-            if i + 3 < len(data) and all(0x80 <= data[j] <= 0xBF for j in range(i+1, i+3)):
-                valid_utf8_bytes += 4
-                i += 4
-            else:
-                i += 1
-        else:
-            i += 1
-
-    return valid_utf8_bytes >= len(data) * threshold
+        # 检查可打印字符比例
+        printable = sum(1 for b in data[:2000] if 32 <= b <= 126 or b in (9, 10, 13))
+        if len(data[:2000]) == 0:
+            return True
+        ratio = printable / len(data[:2000])
+        return ratio >= 0.7
+    except:
+        return False
 
 
-def guess_file_type(file_source, is_bytes: bool = False) -> str:
+
+def guess_file_type(data: bytes, filename: str = '', is_bytes: bool = False) -> str:
     """
     根据文件头猜测类型
-    :param file_source: 文件路径（字符串）或字节数据
+    :param data: 文件路径（字符串）或字节数据
+    :param filename: 文件名
     :param is_bytes: 如果为True，file_source视为字节数据
     :return: 类型字符串 ('text', 'pdf', 'zip', 'html', 'xml', 'binary'等)
     """
+    if isinstance(data, str):
+        # 字符串视为路径，读取二进制内容再判断
+        try:
+            with open(data, 'rb') as f:
+                data = f.read(512)
+            is_bytes = True
+        except Exception:
+            return 'unknown'
+
+    # Office 文件识别
+    if data[:4] == b'PK\x03\x04':
+        try:
+            with zipfile.ZipFile(BytesIO(data)) as z:
+                names = z.namelist()
+                if 'word/document.xml' in names:
+                    return 'docx'
+                elif 'xl/workbook.xml' in names:
+                    return 'xlsx'
+                elif 'ppt/presentation.xml' in names:
+                    return 'pptx'
+        except:
+            pass
+
+    # 原有的文件类型判断
     if is_bytes:
-        header = file_source[:512]
+        header = data[:512]
     else:
-        with open(file_source, 'rb') as f:
+        with open(data, 'rb') as f:
             header = f.read(512)
 
     if not header:
@@ -106,34 +155,112 @@ def guess_file_type(file_source, is_bytes: bool = False) -> str:
     # 2️⃣ 判断是否为文本内容
     if is_text_content(header):
         return 'text'
+    # （保留你已有的逻辑）
 
-    # 3️⃣ 剩余的都算 binary
+    if filename:
+        ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        ext_map = {
+            'txt': 'text', 'md': 'markdown', 'py': 'python', 'java': 'java',
+            'js': 'javascript', 'ts': 'typescript', 'html': 'html', 'css': 'css',
+            'json': 'json', 'xml': 'xml', 'yml': 'yaml', 'yaml': 'yaml',
+            'ini': 'ini', 'cfg': 'config', 'conf': 'config', 'csv': 'csv',
+            'log': 'log', 'doc': 'doc', 'docx': 'docx', 'xls': 'xls',
+            'xlsx': 'xlsx', 'ppt': 'ppt', 'pptx': 'pptx', 'pdf': 'pdf'
+        }
+        if ext in ext_map:
+            return ext_map[ext]
+
     return 'binary'
+
+def read_text_from_bytes(data: bytes, filename: str = '') -> str:
+    """
+    从字节数据中读取文本内容，支持多种文件格式
+    """
+    if not data:
+        return ''
+
+    # 1. 检查是否是 Office 文件
+    if data[:4] == b'PK\x03\x04':
+        try:
+            with zipfile.ZipFile(BytesIO(data)) as z:
+                names = z.namelist()
+                if 'word/document.xml' in names:
+                    print(f"  📖 检测为 docx 文件")
+                    return parse_docx(data)
+                elif 'xl/workbook.xml' in names:
+                    print(f"  📖 检测为 xlsx 文件")
+                    return parse_xlsx(data)
+                elif 'ppt/presentation.xml' in names:
+                    print(f"  📖 检测为 pptx 文件")
+                    return parse_pptx(data)
+        except Exception as e:
+            print(f"  ⚠️ Office 文件解析失败: {e}")
+
+    # 2. 再检查文件后缀（更精确）
+    if filename:
+        ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        if ext == 'docx':
+            print(f"  📖 按后缀识别为 docx")
+            return parse_docx(data)
+        elif ext == 'xlsx':
+            print(f"  📖 按后缀识别为 xlsx")
+            return parse_xlsx(data)
+        elif ext == 'pptx':
+            print(f"  📖 按后缀识别为 pptx")
+            return parse_pptx(data)
+
+    # 3. 原有的文本读取逻辑
+    try:
+        text = data.decode('utf-8')
+        return text
+    except UnicodeDecodeError:
+        pass
+
+    try:
+        text = data.decode('gbk')
+        return text
+    except UnicodeDecodeError:
+        pass
+
+    try:
+        text = data.decode('gb2312')
+        return text
+    except UnicodeDecodeError:
+        pass
+
+    try:
+        text = data.decode('utf-16')
+        return text
+    except UnicodeDecodeError:
+        pass
+
+    return ''
 
 
 def read_text_from_file(file_path: str) -> str:
-    """根据文件类型读取文本内容"""
-    ftype = guess_file_type(file_path)
-    # 这些类型可直接按 UTF-8 读取
-    if ftype in ('text', 'html', 'xml', 'rtf'):
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                return f.read()
-        except Exception:
+    """
+    根据文件类型读取文本内容（统一读取字节后转文本）
+    支持：普通文本、JSON、XML、HTML、DOCX、XLSX、PPTX、PDF（如果有库的话）
+    """
+    if not os.path.exists(file_path):
+        return ""
+
+    try:
+        # 统一以二进制模式读取，交给 read_text_from_bytes 去判断类型
+        with open(file_path, 'rb') as f:
+            data = f.read()
+
+        if not data:
             return ""
-    # 对于其他格式（PDF, DOCX, ZIP等）暂不处理，返回空字符串
-    return ""
+
+        filename = os.path.basename(file_path)
+        return read_text_from_bytes(data, filename)
+
+    except Exception as e:
+        print(f"  ⚠️ 读取文件失败 {file_path}: {e}")
+        return ""
 
 
-def read_text_from_bytes(content: bytes, filename: str) -> str:
-    """从字节流中读取文本"""
-    # 先判断是否为文本
-    if is_text_content(content):
-        try:
-            return content.decode('utf-8', errors='ignore')
-        except Exception:
-            return ""
-    return ""
 
 
 # ==================== FastAPI 路由注册 ====================
