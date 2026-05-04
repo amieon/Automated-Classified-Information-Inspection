@@ -336,16 +336,7 @@ class FileCheckerModule(BaseChecker):
                 #         if i <= 3:  # 只打印前3行
                 #             print(f"  行{i} 无匹配, 内容片段: {line[:80]!r}")
                 # ==============================
-                def format_leak_lines(leak_lines: list) -> str:
-                    """
-                    将 leak_lines 格式化为可读字符串。
-                    输入: [ (行号, 关键字, 匹配内容) , ... ]
-                    输出: 多行字符串，每行格式如：第1行，关键字为：“机密”，具体内容：“["机密","秘密","绝密"...]”
-                    """
-                    lines = []
-                    for line_no, keyword, content in leak_lines:
-                        lines.append(f'第{line_no}行，关键字为：“{keyword}”，具体内容：“{content}”')
-                    return '\n'.join(lines)
+
                 leak_lines = detector.check_text(text)
                 #print(f"  leak_lines 最终返回: {leak_lines}")
                 results.append({
@@ -353,62 +344,150 @@ class FileCheckerModule(BaseChecker):
                     'leak_lines': leak_lines,
                     'file_type': guess_file_type(content, is_bytes=True),
                     'note': '' if text else '无法读取文本内容',
-                    'text': format_leak_lines(leak_lines)
 
                 })
             return self._build_html_result(results)
 
+
+
     @staticmethod
     def _build_html_result(results: list) -> str:
-        import html as html_mod  # 用于转义
+        import html as html_mod
         total_leak = sum(1 for r in results if r['leak_lines'])
         html = f"""
         <h3>✅ 文件检查结果</h3>
         <p>共检查 <strong>{len(results)}</strong> 个文件，发现 <strong>{total_leak}</strong> 个含涉密信息</p>
         <table class="table table-bordered">
             <thead>
-                <tr><th>文件路径</th><th>类型</th><th>涉密行数</th><th>内容预览</th><th>备注</th></tr>
+                <tr><th>文件路径</th><th>类型</th><th>涉密行数</th><th>操作</th><th>备注</th></tr>
             </thead>
             <tbody>
         """
+
+        def format_leak_lines(leak_lines: list) -> str:
+            """
+            将 leak_lines 格式化为可读字符串。
+            输入: [ (行号, 关键字, 匹配内容) , ... ]
+            输出: 多行字符串，每行格式如：第1行，关键字为：“机密”，具体内容：“["机密","秘密","绝密"...]”
+            """
+            lines = []
+            for line_no, keyword, content in leak_lines:
+                lines.append(f'第{line_no}行，关键字为：“{keyword}”，具体内容：“{content}”')
+            return '\n'.join(lines)
         for i, r in enumerate(results):
+            # 格式化涉密行详情
+            lines_detail = format_leak_lines(r['leak_lines']) if r['leak_lines'] else "无"
             lines_str = "; ".join([f"第{l[0]}行" for l in r['leak_lines']]) if r['leak_lines'] else "无"
 
-            full_text = r.get('text', '') if r.get('text') else '无法读取'
-            # 限制预览文本长度（防止超长）
-            if len(full_text) > 5000:
-                full_text = full_text[:5000] + '\n... (内容过多，仅显示前5000字符)'
-            full_text_esc = html_mod.escape(full_text)
-
-            # 字符数提示
-            preview_span = f'<span class="text-muted">({len(r.get("text", ""))}字符)</span>' if r.get('text') else ''
             note = r.get('note', '')
-            btn_text = "查看详情" if r['leak_lines'] else "展开"
 
-            # 按钮：内联onclick切换同级的div显示
-            btn_html = (
-                f'<button class="btn btn-sm btn-outline-info" type="button" '
-                f'onclick="var d=this.nextElementSibling;'
-                f'd.style.display=d.style.display===\'none\'?\'block\':\'none\';">'
-                f'{btn_text} {preview_span}</button>'
+            # 按钮 — 点击弹出弹窗
+            btn = (
+                f'<button class="btn btn-sm btn-outline-info" '
+                f'onclick="showModal(\'modal_{i}\')">'
+                f'查看详情</button>'
             )
-            # 内容区域，初始隐藏
-            content_html = (
-                '<div style="display:none; margin-top:5px;">'
-                '<div style="border:1px solid #ddd; border-radius:5px; padding:8px; '
-                'max-height:300px; overflow-y:auto; background:#fafafa;">'
-                f'<pre style="white-space: pre-wrap; word-wrap: break-word; margin:0;">{full_text_esc}</pre>'
-                '</div></div>'
-            )
+
+            # 弹窗 HTML（初始隐藏）
+            modal = f"""
+            <div id="modal_{i}" class="my-modal-overlay" style="display:none;" onclick="closeModal('modal_{i}')">
+                <div class="my-modal-content" onclick="event.stopPropagation();">
+                    <div class="my-modal-header">
+                        <span class="my-modal-title">{html_mod.escape(r['path'])}</span>
+                        <span class="my-modal-close" onclick="closeModal('modal_{i}')">&times;</span>
+                    </div>
+                    <div class="my-modal-body">
+                        <p><strong>文件路径：</strong>{html_mod.escape(r['path'])}</p>
+                        <p><strong>文件类型：</strong>{r['file_type']}</p>
+                        <p><strong>涉密行数：</strong>{lines_str}</p>
+                        <hr>
+                        <pre style="white-space:pre-wrap; word-wrap:break-word; max-height:400px; overflow-y:auto;">{lines_detail}</pre>
+                    </div>
+                    <div class="my-modal-footer">
+                        <button class="btn btn-sm btn-secondary" onclick="closeModal('modal_{i}')">关闭</button>
+                    </div>
+                </div>
+            </div>
+            """
 
             html += f"""
             <tr>
                 <td>{r['path']}</td>
                 <td>{r['file_type']}</td>
                 <td>{lines_str}</td>
-                <td>{btn_html}{content_html}</td>
+                <td>{btn}{modal}</td>
                 <td>{note}</td>
             </tr>
             """
+
         html += "</tbody></table>"
+
+        # 追加弹窗所需的 CSS 和 JS（只需注入一次）
+        html += """
+        <style>
+            .my-modal-overlay {
+                position: fixed;
+                top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+            }
+            .my-modal-content {
+                background: #fff;
+                border-radius: 8px;
+                max-width: 700px;
+                width: 90%;
+                max-height: 80%;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            }
+            .my-modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 16px;
+                border-bottom: 1px solid #dee2e6;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            .my-modal-close {
+                font-size: 24px;
+                font-weight: bold;
+                cursor: pointer;
+                color: #999;
+            }
+            .my-modal-close:hover { color: #000; }
+            .my-modal-body {
+                padding: 16px;
+                overflow-y: auto;
+                flex: 1;
+            }
+            .my-modal-footer {
+                padding: 10px 16px;
+                border-top: 1px solid #dee2e6;
+                text-align: right;
+            }
+        </style>
+        <script>
+            function showModal(id) {
+                document.getElementById(id).style.display = 'flex';
+            }
+            function closeModal(id) {
+                document.getElementById(id).style.display = 'none';
+            }
+            // 按 ESC 键关闭弹窗
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    document.querySelectorAll('.my-modal-overlay').forEach(function(el) {
+                        if (el.style.display === 'flex') {
+                            el.style.display = 'none';
+                        }
+                    });
+                }
+            });
+        </script>
+        """
         return html
