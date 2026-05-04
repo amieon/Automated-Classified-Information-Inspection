@@ -334,20 +334,21 @@ class FileCheckerModule(BaseChecker):
 
     @staticmethod
     def _build_html_result(results: list) -> str:
-        """将检查结果渲染成 HTML 表格"""
         total_leak = sum(1 for r in results if r['leak_lines'])
         html = f"""
         <h3>✅ 文件检查结果</h3>
         <p>共检查 <strong>{len(results)}</strong> 个文件，发现 <strong>{total_leak}</strong> 个含涉密信息</p>
         <table class="table table-bordered">
             <thead>
-                <tr><th>文件路径</th><th>类型</th><th>涉密行数</th><th>备注</th></tr>
+                <tr><th>文件路径</th><th>类型</th><th>涉密行数</th><th>内容预览</th><th>备注</th></tr>
             </thead>
             <tbody>
         """
         for r in results:
             lines_str = "; ".join([f"第{l[0]}行" for l in r['leak_lines']]) if r['leak_lines'] else "无"
+            # 内容预览：取前100字符
+            preview = r.get('text', '')[:100].replace('\n', ' ').replace('\r', '') if r.get('text') else '无法读取'
             note = r.get('note', '')
-            html += f"<tr><td>{r['path']}</td><td>{r['file_type']}</td><td>{lines_str}</td><td>{note}</td></tr>"
+            html += f"<tr><td>{r['path']}</td><td>{r['file_type']}</td><td>{lines_str}</td><td>{preview}...</td><td>{note}</td></tr>"
         html += "</tbody></table>"
         return html
