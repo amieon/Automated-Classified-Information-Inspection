@@ -1,94 +1,95 @@
-from typing import List, Dict
-from utils.regex_leak_detector import RegexLeakDetector   # 之前的正则检测器
-from utils.crawler import WebCrawler                      # 新爬虫
+# checkers/web_checker.py
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+from fastapi import FastAPI, Form
+from fastapi.responses import HTMLResponse
+from .base_checker import BaseChecker
 
-class WebChecker:
-    def __init__(self, detector: RegexLeakDetector, crawler: WebCrawler = None):
-        self.detector = detector
-        self.crawler = crawler or WebCrawler(max_pages=20)   # 默认爬虫
+# ---------- 原有的检测逻辑 ----------
+class LeakDetector:
+    """涉密信息检测器（保留原有逻辑）"""
+    def __init__(self, keywords=None):
+        self.keywords = keywords or ["机密", "秘密", "绝密", "内部", "保密", "隐私"]
+        # 也可从配置文件读取
 
-    # ---------- 文本提取（内部使用） ----------
-    @staticmethod
-    def _extract_text(html: str) -> List[str]:
-        """从 HTML 提取纯文本，返回行列表"""
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, 'lxml')
-        for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'noscript', 'iframe']):
-            tag.decompose()
-        text = soup.get_text(separator='\n', strip=True)
-        return text.split('\n')
+    def check_text(self, text):
+        """检查文本中是否包含关键词"""
+        lines = text.split('\n')
+        leak_lines = []
+        for i, line in enumerate(lines, 1):
+            for kw in self.keywords:
+                if kw in line:
+                    # 记录行号和关键词
+                    leak_lines.append((i, kw, line.strip()))
+                    break
+        return leak_lines
 
-    # ---------- 竖排检测（内部使用） ----------
-    @staticmethod
-    def _detect_vertical(lines: List[str]) -> bool:
-        if not lines:
-            return False
-        short = sum(1 for l in lines if len(l.strip()) <= 2)
-        return short / len(lines) > 0.7
+def check_website(start_url, max_pages=50):
+    """爬取指定网站并检查涉密信息（原有的核心函数）"""
+    detector = LeakDetector()
+    visited = set()
+    to_visit = {start_url}
+    results = {
+        'checked_pages': 0,
+        'secret_pages': 0,
+        'details': []
+    }
 
-    # ---------- 核心接口 ----------
-    def crawl_and_check(self, start_url: str) -> Dict:
-        """
-        爬取并检测，返回结果：
-        {
-            "success": True,
-            "total_pages": 整站爬取总页数,
-            "secret_pages": 发现涉密内容的页数,
-            "details": [ 每一页的详细结果 ]
-        }
-        """
-        # 1. 用爬虫获取所有页面
-        raw_pages = self.crawler.crawl(start_url)
-        details = []
+    while to_visit and len(visited) < max_pages:
+        url = to_visit.pop()
+        if url in visited:
+            continue
+        visited.add(url)
 
-        for page in raw_pages:
-            url = page["url"]
-            html = page["html"]
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.encoding = 'utf-8'
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            page_text = soup.get_text(separator='\n')
+            leak_lines = detector.check_text(page_text)
 
-            # 2. 如果 HTML 为空则跳过
-            if not html:
-                details.append({"url": url, "status": "error", "leak_info": []})
-                continue
+            page_detail = {'url': url, 'lines': leak_lines}
+            results['details'].append(page_detail)
+            results['checked_pages'] += 1
 
-            # 3. 提取文本行
-            lines = self._extract_text(html)
+            if leak_lines:
+                results['secret_pages'] += 1
 
-            # 4. 根据是否竖排选择检测模式
-            if self._detect_vertical(lines):
-                leakage = self.detector.detect(lines, mode="vertical")
-            else:
-                exact = self.detector.detect(lines, mode="exact")
-                fuzzy = self.detector.detect(lines, mode="fuzzy")
-                leakage = exact + fuzzy
+            # 提取页面中所有链接
+            for a_tag in soup.find_all('a', href=True):
+                href = a_tag['href']
+                full_url = urljoin(url, href)
+                # 仅保留同域名链接，避免爬到外网
+                if urlparse(full_url).netloc == urlparse(start_url).netloc:
+                    if full_url not in visited:
+                        to_visit.add(full_url)
 
-            # 5. 记录该页结果
-            details.append({
-                "url": url,
-                "status": "危险" if leakage else "安全",
-                "leak_info": leakage
-            })
+        except Exception as e:
+            print(f"⚠️ 爬取 {url} 出错: {e}")
 
-        # 6. 统计
-        secret_pages = [d for d in details if d["status"] == "危险"]
-        return {
-            "success": True,
-            "total_pages": len(raw_pages),
-            "secret_pages": len(secret_pages),
-            "details": details
-        }
+    return results
 
-
-# ========== 测试 ==========
-if __name__ == "__main__":
-    detector = RegexLeakDetector(keywords=["秘密", "机密", "绝密", "内部", "隐私"])
-    checker = WebChecker(detector)
-    # 爬取本地测试网站
-    result = checker.crawl_and_check("http://localhost:8000/")
-    print(f"扫描完成，共 {result['total_pages']} 页，发现 {result['secret_pages']} 页存在风险")
-    for p in result['details']:
-        if p['leak_info']:
-            print(f"  ❌ {p['url']}  风险数: {len(p['leak_info'])}")
-            for info in p['leak_info']:
-                print(f"      -> {info}")
-        else:
-            print(f"  ✅ {p['url']}  安全")
+# ---------- FastAPI 模块封装 ----------
+class WebCheckerModule(BaseChecker):
+    """网页检查模块 - 注册 FastAPI 路由"""
+    def register_routes(self, app: FastAPI):
+        @app.post("/check/web", response_class=HTMLResponse)
+        async def check_web(url: str = Form(...)):
+            try:
+                result = check_website(url)
+                html = f"""
+                <h3>✅ 检查结果</h3>
+                <p>共检查 <strong>{result['checked_pages']}</strong> 个网页，
+                   发现 <strong>{result['secret_pages']}</strong> 个含涉密信息</p>
+                <table class="table table-bordered">
+                    <thead><tr><th>网页 URL</th><th>涉密行数</th></tr></thead>
+                    <tbody>
+                """
+                for detail in result['details']:
+                    lines_str = "; ".join([f"第{l[0]}行" for l in detail['lines']])
+                    html += f"<tr><td>{detail['url']}</td><td>{lines_str}</td></tr>"
+                html += "</tbody></table>"
+                return HTMLResponse(content=html)
+            except Exception as e:
+                return HTMLResponse(content=f"<div class='alert alert-danger'>出错：{str(e)}</div>")
