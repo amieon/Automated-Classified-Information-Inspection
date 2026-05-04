@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 # 模块注册表 - 可通过配置文件或环境变量动态扩展
 CHECKER_MODULES = {
     "web": "checkers.web_checker.WebCheckerModule",
-    # "file": "checkers.file_checker.FileCheckerModule",
+    "file": "checkers.file_checker.FileCheckerModule",
     # 后续可以不断添加
 }
 
