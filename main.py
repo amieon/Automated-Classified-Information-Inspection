@@ -5,6 +5,7 @@ import threading
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from starlette.staticfiles import StaticFiles
 
 # 模块注册表 - 可通过配置文件或环境变量动态扩展
 CHECKER_MODULES = {
@@ -18,7 +19,9 @@ CHECKER_MODULES = {
 def create_app(modules: list = None):
     """根据传入的模块列表创建 FastAPI 应用"""
     app = FastAPI()
+    app.mount("/static", StaticFiles(directory="static"), name="static")
     templates = Jinja2Templates(directory="templates")
+
 
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request):
