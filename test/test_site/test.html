@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目管理系统 - 仪表盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #007BFF; padding-bottom: 10px; }
+        .nav { margin-bottom: 20px; background: #eee; padding: 10px; border-radius: 4px; }
+        .nav a { margin-right: 15px; text-decoration: none; color: #555; }
+        .content-section { margin-top: 20px; }
+        .alert { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #ffeeba; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        .footer { margin-top: 30px; font-size: 12px; color: #999; text-align: center; }
+
+        /* 模拟一些高亮样式 */
+        .highlight { color: #d9534f; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- 头部导航 -->
+    <div class="nav">
+        <a href="#">首页</a>
+        <a href="#">项目管理</a>
+        <a href="#">用户列表</a>
+        <a href="#">系统设置</a>
+    </div>
+
+    <h1>系统公告与通知</h1>
+
+    <!-- 包含关键字的文本段落 -->
+    <div class="content-section">
+        <p>大家好，本周的下午茶时间定在周五下午 3 点，地点在茶水间。请大家带好杯子。</p>
+
+        <div class="alert">
+            <strong>⚠️ 安全提醒：</strong> 根据合规部要求，所有标有 <span class="highlight">【机密】</span> 和 <span class="highlight">【绝密】</span> 的文件严禁上传至公共云盘。请大家自查。
+        </div>
+
+        <p>另外，关于新版本上线的通知：研发部已完成代码封板。请注意，涉及用户 <span class="highlight">【隐私】</span> 的接口已进行脱敏处理。请测试团队重点验证。</p>
+    </div>
+
+    <!-- 包含关键字的表格 -->
+    <h2>最新文档列表</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>文档名称</th>
+                <th>密级</th>
+                <th>上传人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>2024年度战略规划</td>
+                <td><span class="highlight">绝密</span></td>
+                <td>CEO办公室</td>
+                <td><a href="#">查看</a></td>
+            </tr>
+            <tr>
+                <td>员工通讯录</td>
+                <td><span class="highlight">内部</span></td>
+                <td>行政部</td>
+                <td><a href="#">下载</a></td>
+            </tr>
+            <tr>
+                <td>Q3 财务报表草案</td>
+                <td><span class="highlight">机密</span></td>
+                <td>财务部</td>
+                <td><a href="#">编辑</a></td>
+            </tr>
+            <tr>
+                <td>办公室零食采购清单</td>
+                <td>公开</td>
+                <td>小李</td>
+                <td><a href="#">查看</a></td>
+            </tr>
+            <tr>
+                <td>核心算法逻辑说明</td>
+                <td><span class="highlight">保密</span></td>
+                <td>架构组</td>
+                <td><a href="#">查看</a></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 包含关键字的评论区/日志区 -->
+    <div class="content-section">
+        <h3>系统操作日志</h3>
+        <ul>
+            <li>[10:05] 用户 Admin 修改了【秘密】通道配置。</li>
+            <li>[10:12] 用户 Guest 尝试访问【隐私】数据被拦截。</li>
+            <li>[10:30] 系统自动备份完成。</li>
+        </ul>
+    </div>
+
+    <div class="footer">
+        &copy; 2026 测试项目科技有限公司 版权所有
+    </div>
+</div>
+
+</body>
+</html>
