@@ -1,68 +1,79 @@
+import os
+import io
+import tempfile
 from pathlib import Path
 from typing import List
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
 from utils.leak_detector import LeakDetector
-from PIL import Image
-import io
-import pytesseract
-import sys
-# 自动检测并设置 tesseract 路径
-if sys.platform == 'win32':
-    import platform
-    possible_paths = [
-        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-    ]
-    for p in possible_paths:
-        import os
-        if os.path.exists(p):
-            pytesseract.pytesseract.tesseract_cmd = p
-            break
 
-# ==================== 图片魔数（文件头） ====================
-IMAGE_HEADERS = {
-    b'\x89PNG\r\n\x1a\n': 'png',
-    b'\xff\xd8\xff':      'jpg/jpeg',
-    b'GIF8':              'gif',
-    b'BM':                'bmp',
-    b'RIFF':              'webp',   # WebP 以 RIFF 开头
+# ==================== 音频文件魔数 ====================
+AUDIO_MAGIC = {
+    b'\x49\x44\x33': 'mp3',           # ID3 tag 开头
+    b'\xff\xfb': 'mp3',               # MPEG 音频同步头（部分 MP3）
+    b'RIFF': 'wav',                   # WAV（还需检查第8字节是否为 WAVE，但简单判断足够）
+    b'fLaC': 'flac',                  # FLAC
+    b'OggS': 'ogg',                   # OGG / Opus
+    b'\x00\x00\x00\x18ftyp': 'm4a',   # MP4 容器中的 AAC（简化处理）
+    b'\x00\x00\x00\x14ftyp': 'm4a',   # 另一种 ftyp
+    b'\x00\x00\x00\x1cftyp': 'm4a',
 }
 
-def is_image_file(file_path: str) -> bool:
-    """通过文件头判断是否为图片"""
+def is_audio_file(file_path: str) -> bool:
+    """通过文件头判断是否为音频文件"""
     try:
         with open(file_path, 'rb') as f:
-            header = f.read(16)   # 读取足够字节用于判断
-        for magic, img_type in IMAGE_HEADERS.items():
+            header = f.read(20)  # 读取足够字节
+        for magic, audio_type in AUDIO_MAGIC.items():
             if header.startswith(magic):
                 return True
-        # 对JPEG的补充：JPEG可以以0xFFD8FF开头（已含）或0xFFD8FFE0开头等
-        # 我们已包括'b\xff\xd8\xff'，但有时JPEG的APP0标记可能是\xff\xd8\xff\xe0
-        # 所以更精确的判断：检查前两个字节是否为0xFFD8
-        if len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
+        # 补充：WAV 的特殊判断（RIFF + WAVE）
+        if header[:4] == b'RIFF' and header[8:12] == b'WAVE':
             return True
         return False
     except Exception:
         return False
 
-def ocr_image(file_path: str) -> str:
-    """OCR提取图片中的文字，返回字符串"""
+def is_audio_bytes(data: bytes) -> bool:
+    """根据字节数据判断是否为音频"""
+    if not data:
+        return False
+    header = data[:20]
+    for magic, _ in AUDIO_MAGIC.items():
+        if header.startswith(magic):
+            return True
+    if header[:4] == b'RIFF' and header[8:12] == b'WAVE':
+        return True
+    return False
+
+# ==================== 语音识别 ====================
+def asr_audio(file_path: str) -> str:
+    """
+    使用 Whisper 进行离线语音识别
+    返回识别出的文本字符串
+    """
     try:
-        img = Image.open(file_path)
-        # 使用中文+英文语言包，若只需中文可改为 'chi_sim'
-        text = pytesseract.image_to_string(img, lang='chi_sim+eng')
-        return text.strip()
+        import whisper
+        # 使用 base 模型（平衡速度与准确率），可改为 'small' 或 'tiny'
+        model = whisper.load_model("base")
+        result = model.transcribe(file_path, language="zh")  # 指定中文，也可自动检测
+        return result["text"].strip()
+    except ImportError:
+        # Whisper 未安装，回退到备选方案（如果有）
+        # 这里选择返回空字符串并打印提示
+        print("⚠️ 未安装 openai-whisper，无法进行语音识别。")
+        return ""
     except Exception as e:
-        return ""   # OCR失败返回空字符串
+        print(f"⚠️ 语音识别失败: {e}")
+        return ""
 
 # ==================== FastAPI 路由注册 ====================
-class ImageCheckerModule(BaseChecker):
+class AudioCheckerModule(BaseChecker):
     def register_routes(self, app: FastAPI):
         # ------ 方式1：输入路径 ------
-        @app.post("/check/image/path", response_class=HTMLResponse)
-        async def check_image_path(path: str = Form(...)):
+        @app.post("/check/audio/path", response_class=HTMLResponse)
+        async def check_audio_path(path: str = Form(...)):
             detector = LeakDetector()
             p = Path(path)
             if not p.exists():
@@ -70,13 +81,13 @@ class ImageCheckerModule(BaseChecker):
 
             results = []
             if p.is_file():
-                res = self._process_single_image(str(p), detector)
+                res = self._process_single_audio(str(p), detector)
                 results.append(res)
             elif p.is_dir():
                 for root, dirs, files in os.walk(p):
                     for file in files:
                         fp = Path(root) / file
-                        res = self._process_single_image(str(fp), detector)
+                        res = self._process_single_audio(str(fp), detector)
                         results.append(res)
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
@@ -84,14 +95,11 @@ class ImageCheckerModule(BaseChecker):
             return self._build_html_result(results)
 
         # ------ 方式2：上传文件 ------
-        @app.post("/check/image/upload", response_class=HTMLResponse)
-        async def check_image_upload(files: List[UploadFile] = File(...)):
+        @app.post("/check/audio/upload", response_class=HTMLResponse)
+        async def check_audio_upload(files: List[UploadFile] = File(...)):
             detector = LeakDetector()
             results = []
             for file in files:
-                # 将上传的文件保存到临时文件才能用PIL读取（或者直接从BytesIO读取）
-                # 为了利用 is_image_file（需要文件路径），我们可以先保存到临时文件
-                # 但更好的方式是直接从字节流判断文件头（不用临时文件）
                 content = await file.read()
                 if not content:
                     results.append({
@@ -102,86 +110,76 @@ class ImageCheckerModule(BaseChecker):
                     })
                     continue
 
-                # 判断是否为图片（基于字节头）
-                if not self._is_image_bytes(content):
+                # 判断是否为音频
+                if not is_audio_bytes(content):
                     results.append({
                         'path': file.filename,
                         'leak_lines': [],
                         'file_type': 'unknown',
-                        'note': '不是图片文件'
+                        'note': '不是音频文件'
                     })
                     continue
 
-                # 从字节流进行OCR（使用 PIL 的 BytesIO）
+                # 保存到临时文件供 Whisper 使用
+                suffix = Path(file.filename).suffix or '.wav'
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
+
                 try:
-                    img = Image.open(io.BytesIO(content))
-                    text = pytesseract.image_to_string(img, lang='chi_sim+eng').strip()
+                    text = asr_audio(tmp_path)
                 except Exception as e:
                     text = ""
+                finally:
+                    os.unlink(tmp_path)  # 清理临时文件
 
                 leak_lines = detector.check_text(text) if text else []
                 results.append({
                     'path': file.filename,
                     'leak_lines': leak_lines,
-                    'file_type': 'image',
-                    'note': '' if text else 'OCR未能提取文字'
+                    'file_type': 'audio',
+                    'note': '' if text else '语音识别未能提取文字'
                 })
 
             return self._build_html_result(results)
 
     # -------------------- 内部方法 --------------------
-    def _process_single_image(self, file_path: str, detector: LeakDetector) -> dict:
-        """处理单个图片文件，返回结果字典"""
-        # 1. 判断是否为图片
-        if not is_image_file(file_path):
+    def _process_single_audio(self, file_path: str, detector: LeakDetector) -> dict:
+        """处理单个音频文件，返回结果字典"""
+        if not is_audio_file(file_path):
             return {
                 'path': file_path,
                 'leak_lines': [],
                 'file_type': 'unknown',
-                'note': '不是图片文件'
+                'note': '不是音频文件'
             }
 
-        # 2. OCR
-        text = ocr_image(file_path)
+        # 语音识别
+        text = asr_audio(file_path)
         if not text:
             return {
                 'path': file_path,
                 'leak_lines': [],
-                'file_type': 'image',
-                'note': '图片中未检测到文字'
+                'file_type': 'audio',
+                'note': '音频中未识别出语音'
             }
 
-        # 3. 敏感词检测
         leak_lines = detector.check_text(text)
         return {
             'path': file_path,
             'leak_lines': leak_lines,
-            'file_type': 'image',
+            'file_type': 'audio',
             'note': ''
         }
 
     @staticmethod
-    def _is_image_bytes(data: bytes) -> bool:
-        """根据字节数据判断是否为图片"""
-        if not data:
-            return False
-        header = data[:16]
-        for magic, img_type in IMAGE_HEADERS.items():
-            if header.startswith(magic):
-                return True
-        # JPEG补充判断（前两个字节0xFFD8）
-        if len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
-            return True
-        return False
-
-    @staticmethod
     def _build_html_result(results: list) -> str:
-        """生成结果HTML表格（与file_checker中的完全一致，此处复制以避免依赖）"""
+        """生成结果HTML表格（与 image_checker 一致，仅修改标题为 '音频检查结果'）"""
         import html as html_mod
         total_leak = sum(1 for r in results if r['leak_lines'])
         html = f"""
-        <h3>✅ 图片检查结果</h3>
-        <p>共检查 <strong>{len(results)}</strong> 张图片，发现 <strong>{total_leak}</strong> 张含涉密文字</p>
+        <h3>✅ 音频检查结果</h3>
+        <p>共检查 <strong>{len(results)}</strong> 个音频文件，发现 <strong>{total_leak}</strong> 个含涉密语音</p>
         <table class="table table-bordered">
             <thead>
                 <tr><th>文件路径</th><th>类型</th><th>涉密行数</th><th>操作</th><th>备注</th></tr>
@@ -190,7 +188,6 @@ class ImageCheckerModule(BaseChecker):
         """
 
         def format_leak_lines(leak_lines: list) -> str:
-            """格式化涉密行详情"""
             lines = []
             for line_no, keyword, content in leak_lines:
                 lines.append(f'第{line_no}行，关键字为：“{keyword}”，具体内容：“{content}”')
@@ -216,7 +213,7 @@ class ImageCheckerModule(BaseChecker):
                     </div>
                     <div class="my-modal-body">
                         <p><strong>文件路径：</strong>{html_mod.escape(r['path'])}</p>
-                        <p><strong>文件类型：</strong>图片</p>
+                        <p><strong>文件类型：</strong>音频</p>
                         <p><strong>涉密行数：</strong>{lines_str}</p>
                         <hr>
                         <pre style="white-space:pre-wrap; word-wrap:break-word; max-height:400px; overflow-y:auto;">{lines_detail}</pre>
@@ -231,7 +228,7 @@ class ImageCheckerModule(BaseChecker):
             html += f"""
             <tr>
                 <td>{r['path']}</td>
-                <td>图片</td>
+                <td>音频</td>
                 <td>{lines_str}</td>
                 <td>{btn}{modal}</td>
                 <td>{note}</td>

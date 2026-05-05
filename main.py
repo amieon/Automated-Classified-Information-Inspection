@@ -10,7 +10,8 @@ from fastapi.templating import Jinja2Templates
 CHECKER_MODULES = {
     "web": "checkers.web_checker.WebCheckerModule",
     "file": "checkers.file_checker.FileCheckerModule",
-    # 后续可以不断添加
+    "image": "checkers.image_checker.ImageCheckerModule",
+    "audio": "checkers.audio_checker.AudioCheckerModule",
 }
 
 def create_app(modules: list = None):

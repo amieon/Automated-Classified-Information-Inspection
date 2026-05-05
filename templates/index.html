@@ -183,7 +183,6 @@
                     <!-- 上传文件/文件夹 -->
                     <div>
                         <h5 class="text-muted">🔹 上传文件或文件夹</h5>
-                        <!-- 该表单的 action 暂时与文件检查一致，后续可根据需要改为 /check/file/upload -->
                         <form id="uploadForm_file" action="/check/file/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
                             <div class="file-upload-area">
                                 <div class="mb-2">
@@ -315,11 +314,11 @@
                     </script>
                 </div>
 
-                <!-- ============ 图片检查标签页 (复用文件检查的UI，但使用独立ID) ============ -->
+                <!-- ============ 图片检查标签页 (修改 action 和 fetch URL) ============ -->
                 <div class="tab-pane fade" id="image-check" role="tabpanel" aria-labelledby="image-tab">
                     <div class="mb-4">
                         <h5 class="text-muted">🔹 输入图片/文件夹路径</h5>
-                        <form id="pathForm_image" action="/check/file/path" method="POST" target="resultFrame">
+                        <form id="pathForm_image" action="/check/image/path" method="POST" target="resultFrame">
                             <div class="input-group input-group-lg mb-3">
                                 <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\images" required>
                                 <button type="submit" class="btn check-btn text-white px-4">
@@ -330,7 +329,7 @@
                     </div>
                     <div>
                         <h5 class="text-muted">🔹 上传图片文件或包含图片的文件夹</h5>
-                        <form id="uploadForm_image" action="/check/file/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
+                        <form id="uploadForm_image" action="/check/image/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
@@ -443,7 +442,7 @@
                         const submitBtn = document.getElementById('submitBtn_image');
                         submitBtn.disabled = true;
                         submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 检查中...';
-                        fetch('/check/file/upload', {
+                        fetch('/check/image/upload', { // 修改此处 URL
                             method: 'POST',
                             body: formData
                         })
@@ -461,11 +460,11 @@
                     </script>
                 </div>
 
-                <!-- ============ 音频检查标签页 (同样复用) ============ -->
+                <!-- ============ 音频检查标签页 (修改 action 和 fetch URL) ============ -->
                 <div class="tab-pane fade" id="audio-check" role="tabpanel" aria-labelledby="audio-tab">
                     <div class="mb-4">
                         <h5 class="text-muted">🔹 输入音频文件/文件夹路径</h5>
-                        <form id="pathForm_audio" action="/check/file/path" method="POST" target="resultFrame">
+                        <form id="pathForm_audio" action="/check/audio/path" method="POST" target="resultFrame">
                             <div class="input-group input-group-lg mb-3">
                                 <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\audio" required>
                                 <button type="submit" class="btn check-btn text-white px-4">
@@ -476,7 +475,7 @@
                     </div>
                     <div>
                         <h5 class="text-muted">🔹 上传音频文件或包含音频的文件夹</h5>
-                        <form id="uploadForm_audio" action="/check/file/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
+                        <form id="uploadForm_audio" action="/check/audio/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
@@ -589,7 +588,7 @@
                         const submitBtn = document.getElementById('submitBtn_audio');
                         submitBtn.disabled = true;
                         submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 检查中...';
-                        fetch('/check/file/upload', {
+                        fetch('/check/audio/upload', { // 修改此处 URL
                             method: 'POST',
                             body: formData
                         })
