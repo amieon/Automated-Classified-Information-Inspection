@@ -12,6 +12,7 @@ CHECKER_MODULES = {
     "file": "checkers.file_checker.FileCheckerModule",
     "image": "checkers.image_checker.ImageCheckerModule",
     "audio": "checkers.audio_checker.AudioCheckerModule",
+    "db": "checkers.db_checker.DBCheckerModule",
 }
 
 def create_app(modules: list = None):

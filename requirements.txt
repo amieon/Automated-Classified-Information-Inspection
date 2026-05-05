@@ -18,3 +18,5 @@ xlrd==1.2.0
 olefile
 pytesseract
 openai-whisper
+sqlalchemy
+pymysql

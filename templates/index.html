@@ -150,6 +150,9 @@
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="audio-tab" data-bs-toggle="tab" data-bs-target="#audio-check" type="button" role="tab" aria-controls="audio-check" aria-selected="false">🎵 音频检查</button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="db-tab" data-bs-toggle="tab" data-bs-target="#db-check" type="button" role="tab" aria-controls="db-check" aria-selected="false">🗄️ 数据库检查</button>
+                </li>
             </ul>
 
             <!-- 选项卡内容 -->
@@ -606,7 +609,54 @@
                     </script>
                 </div>
             </div>
-
+            <div class="tab-pane fade" id="db-check" role="tabpanel" aria-labelledby="db-tab">
+                <div class="mb-4">
+                    <h5 class="text-muted">🔹 填写数据库连接信息</h5>
+                    <form id="dbForm" action="/check/db/connect" method="POST" target="resultFrame">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label">数据库类型</label>
+                                <select name="db_type" class="form-select">
+                                    <option value="mysql">MySQL</option>
+                                    <option value="postgresql">PostgreSQL</option>
+                                    <option value="sqlite">SQLite</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">主机地址</label>
+                                <input type="text" name="host" class="form-control" placeholder="localhost" value="localhost">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">端口</label>
+                                <input type="number" name="port" class="form-control" placeholder="3306">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">数据库名 / SQLite文件路径</label>
+                                <input type="text" name="dbname" class="form-control" placeholder="mydb 或 /path/to/db.sqlite" required>
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">用户名</label>
+                                <input type="text" name="user" class="form-control" placeholder="root">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">密码</label>
+                                <input type="password" name="password" class="form-control" placeholder="密码">
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <button type="submit" class="btn check-btn text-white px-4 w-100">
+                                    <i class="bi bi-database-check"></i> 开始检查
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">或直接输入连接字符串（可选，填此则忽略上方参数）</label>
+                            <input type="text" name="conn_str" class="form-control" placeholder="mysql+pymysql://user:pass@host:port/dbname">
+                        </div>
+                    </form>
+                </div>
+            </div>
             <!-- 加载动画 -->
             <div id="loading" class="text-center py-4" style="display: none;">
                 <div class="spinner-border text-primary" role="status">
