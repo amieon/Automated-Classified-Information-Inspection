@@ -72,8 +72,8 @@ class DBConnector:
         tables = []
         try:
             if self.db_type == "mysql":
-                print(f"🔍 db_type = {self.db_type!r}, database = {self.database!r}")
-                print(f"🔍 cursor = {self.cursor}, cursor.__class__ = {self.cursor.__class__}")
+                # print(f"🔍 db_type = {self.db_type!r}, database = {self.database!r}")
+                # print(f"🔍 cursor = {self.cursor}, cursor.__class__ = {self.cursor.__class__}")
                 # 使用 INFORMATION_SCHEMA 代替 SHOW TABLES，更稳定
                 sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = %s ORDER BY TABLE_NAME"
                 self.cursor.execute(sql, (self.database,))
