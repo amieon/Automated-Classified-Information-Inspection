@@ -23,3 +23,5 @@ sqlalchemy
 pymysql
 requests
 lxml
+py7zr
+rarfile

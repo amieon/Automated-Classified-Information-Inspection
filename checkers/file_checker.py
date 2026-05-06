@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import List
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
+
+from utils.hidden_and_encrypted_checker import is_hidden_file, check_encryption
 from .base_checker import BaseChecker
 from utils.leak_detector import LeakDetector
 import zipfile
@@ -27,6 +29,8 @@ FILE_SIGNATURES = {
     'exe':  b'MZ',
     'elf':  b'\x7fELF',
     'ole2': b'\xd0\xcf\x11\xe0',  # doc/xls/ppt 旧格式
+    '7z':   b'7z\xbc\xaf\x27\x1c\x00',
+    'rar': b'Rar!\x1a\x07',
     # 注意：docx/xlsx/pptx 会先被 'zip' 匹配（PK\x03\x04）
     # txt 没有固定魔数，由 is_text_content() 判断
 }
@@ -189,6 +193,8 @@ def guess_file_type(data: bytes, filename: str = '', is_bytes: bool = False) -> 
             'gitignore': 'gitignore',  # Git Ignore
             'env': 'properties',  # 环境变量文件 (通常类似 ini/properties)
             'toml': 'toml',  # TOML
+            '7z': '7z',
+            'rar': 'rar',
         }
         if ext in ext_map:
             return ext_map[ext]
@@ -316,29 +322,64 @@ class FileCheckerModule(BaseChecker):
             if p.is_file():
                 text = read_text_from_file(str(p))
                 leak_lines = detector.check_text(text) if text else []
+                is_hid = is_hidden_file(str(p))
+                enc_info = check_encryption(str(p))
+                note_parts = []
+                if not text:
+                    note_parts.append('无法读取文本内容')
+                if is_hid:
+                    note_parts.append('隐藏文件')
+                if enc_info['is_encrypted']:
+                    note_parts.append('加密' if not enc_info.get('is_pseudo') else '伪加密')
+                note = '，'.join(note_parts)
                 results.append({
                     'path': str(p),
                     'leak_lines': leak_lines,
                     'file_type': guess_file_type(str(p)),
-                    'note': '' if text else '无法读取文本内容'
+                    'note': note,
+                    'is_encrypted': enc_info['is_encrypted'],
+                    'is_hidden': is_hid,
+                    'is_pseudo': enc_info.get('is_pseudo', False),
                 })
             elif p.is_dir():
+                # 路径路由中
                 for root, dirs, files in os.walk(p):
                     for file in files:
                         fp = Path(root) / file
                         text = read_text_from_file(str(fp))
-
                         leak_lines = detector.check_text(text) if text else []
+
+                        # ★ 新增：隐藏和加密检测
+                        is_hid = is_hidden_file(str(fp))
+                        enc_info = check_encryption(str(fp))
+                        note_parts = []
+                        if not text:
+                            note_parts.append('无法读取文本内容')
+                        if is_hid:
+                            note_parts.append('隐藏文件')
+                        if enc_info['is_encrypted']:
+                            if enc_info.get('is_pseudo'):
+                                note_parts.append('伪加密')
+                            else:
+                                note_parts.append('加密')
+                        note = '，'.join(note_parts)
+
                         results.append({
                             'path': str(fp),
                             'leak_lines': leak_lines,
                             'file_type': guess_file_type(str(fp)),
-                            'note': '' if text else '无法读取文本内容'
+                            'note': note,
+                            'is_encrypted': enc_info['is_encrypted'],
+                            'is_hidden': is_hid,
+                            'is_pseudo': enc_info.get('is_pseudo', False),
                         })
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
 
             return self._build_html_result(results)
+
+        import tempfile
+        import os
 
         @app.post("/check/file/upload", response_class=HTMLResponse)
         async def check_file_upload(files: List[UploadFile] = File(...)):
@@ -347,116 +388,85 @@ class FileCheckerModule(BaseChecker):
             for file in files:
                 content = await file.read()
                 text = read_text_from_bytes(content, file.filename)
-                # ========== 新增调试 ==========
-                # print(f"\n=== 调试: {file.filename} ===")
-                # print(f"  detector.keywords = {detector.keywords}")
-                # print(f"  text 前200字符: {text[:200]!r}")
-                # lines = text.split('\n')
-                # print(f"  行数: {len(lines)}")
-                # for i, line in enumerate(lines, 1):
-                #     for kw in detector.keywords:
-                #         found = kw in line
-                #         if found:
-                #             print(f"  行{i}: 找到关键词 '{kw}'")
-                #             break
-                #     else:
-                #         if i <= 3:  # 只打印前3行
-                #             print(f"  行{i} 无匹配, 内容片段: {line[:80]!r}")
-                # ==============================
-
                 leak_lines = detector.check_text(text)
-                #print(f"  leak_lines 最终返回: {leak_lines}")
-                results.append({
+
+                # 保存到临时文件进行加密检测
+                is_encrypted = False
+                is_pseudo = False
+                is_hidden = False  # 上传的原始文件无隐藏属性
+                if content:  # 非空
+                    # 用临时文件保存上传内容
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
+                        tmp.write(content)
+                        tmp_path = tmp.name
+                    try:
+                        enc_info = check_encryption(tmp_path)
+                        is_encrypted = enc_info['is_encrypted']
+                        is_pseudo = enc_info.get('is_pseudo', False)
+                        # 隐藏属性无法从上传判断，保留 False
+                    finally:
+                        os.unlink(tmp_path)  # 删除临时文件
+
+                note_parts = []
+                if not text:
+                    note_parts.append('无法读取文本内容')
+                # 根据隐藏/加密添加备注（也可在后缀中显示）
+                note = '，'.join(note_parts)
+
+                result = {
                     'path': file.filename,
                     'leak_lines': leak_lines,
                     'file_type': guess_file_type(content, is_bytes=True),
-                    'note': '' if text else '无法读取文本内容',
+                    'note': note,
+                    'is_encrypted': is_encrypted,
+                    'is_hidden': is_hidden,
+                    'is_pseudo': is_pseudo,
+                }
+                results.append(result)
 
-                })
-            # ★ 新增：生成文本报告并写入全局变量
-            text_report = self._generate_text_report(results, source_type="路径")
+            text_report = self._generate_text_report(results, source_type="上传文件")
             main_module = sys.modules.get('__main__')
             if main_module:
                 main_module.LATEST_REPORT = text_report
-            # =========================
             return self._build_html_result(results)
-
-
-    # ==================== ★ 新增：生成纯文本报告 ====================
     @staticmethod
     def _generate_text_report(results: list, source_type: str = "") -> str:
         """
         根据检查结果生成纯文本报告（用于下载）
-        统计总文件数、每种类型数量、涉密文件数、加密/隐藏文件数等
         """
         import datetime
-        from collections import Counter
-
         lines = []
         lines.append("=" * 60)
         lines.append("           文件涉密数据检查报告")
         lines.append("=" * 60)
         lines.append(f"检查方式: {source_type}")
         lines.append(f"检查时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        # ---- 统计信息 ----
         total_files = len(results)
         total_leak_files = sum(1 for r in results if r['leak_lines'])
-
-        # 统计每种文件类型的数量
-        type_counter = Counter(r.get('file_type', 'unknown') for r in results)
-        # 统计加密/隐藏文件（假设 results 中已有 'is_encrypted' 和 'is_hidden' 字段）
-        encrypted_count = sum(1 for r in results if r.get('is_encrypted'))
-        hidden_count = sum(1 for r in results if r.get('is_hidden'))
-
-        lines.append("")
-        lines.append("---- 统计概览 ----")
-        lines.append(f"总文件数:                    {total_files}")
-        lines.append(f"检查到涉密信息的文件数:     {total_leak_files}")
-        lines.append(f"加密文件数:                  {encrypted_count}")
-        lines.append(f"隐藏文件数:                  {hidden_count}")
-        lines.append("")
-
-        # 各类型文件数量
-        lines.append("---- 各类型文件数量 ----")
-        for ftype, cnt in sorted(type_counter.items()):
-            lines.append(f"  {ftype:<12}: {cnt}")
-        lines.append("")
-
-        # ---- 详细结果 ----
+        lines.append(f"检查文件数: {total_files}")
+        lines.append(f"发现涉密文件数: {total_leak_files}")
         lines.append("-" * 60)
         if total_leak_files == 0:
             lines.append("未发现涉密数据。")
         else:
-            lines.append(f"详细结果（共 {total_leak_files} 个涉密文件）：")
+            lines.append("详细结果：")
             for r in results:
                 path = r['path']
-                file_type = r.get('file_type', 'unknown')
                 leak_lines = r['leak_lines']
-                note = r.get('note', '')  # 备注（如加密/隐藏状态等）
-                is_enc = r.get('is_encrypted', False)
-                is_hid = r.get('is_hidden', False)
-
+                file_type = r.get('file_type', 'unknown')
+                note = r.get('note', '')
                 if leak_lines:
                     lines.append(f"\n【文件】{path}")
                     lines.append(f"  类型: {file_type}")
-                    # 附加状态标记
-                    status_parts = []
-                    if is_enc:
-                        status_parts.append("加密")
-                    if is_hid:
-                        status_parts.append("隐藏")
                     if note:
-                        status_parts.append(note)
-                    if status_parts:
-                        lines.append(f"  状态: {'，'.join(status_parts)}")
+                        lines.append(f"  备注: {note}")
                     lines.append(f"  涉密信息 ({len(leak_lines)} 处):")
                     for line_no, keyword, content in leak_lines:
                         lines.append(f"    第{line_no}行 | 关键词 [{keyword}] → {content}")
-
         lines.append("=" * 60)
         lines.append("报告结束")
         return "\n".join(lines)
+
     @staticmethod
     def _build_html_result(results: list) -> str:
         import html as html_mod
@@ -472,29 +482,31 @@ class FileCheckerModule(BaseChecker):
         """
 
         def format_leak_lines(leak_lines: list) -> str:
-            """
-            将 leak_lines 格式化为可读字符串。
-            输入: [ (行号, 关键字, 匹配内容) , ... ]
-            输出: 多行字符串，每行格式如：第1行，关键字为：“机密”，具体内容：“["机密","秘密","绝密"...]”
-            """
             lines = []
             for line_no, keyword, content in leak_lines:
                 lines.append(f'第{line_no}行，关键字为：“{keyword}”，具体内容：“{content}”')
             return '\n'.join(lines)
+
         for i, r in enumerate(results):
-            # 格式化涉密行详情
             lines_detail = format_leak_lines(r['leak_lines']) if r['leak_lines'] else "无"
             lines_str = "; ".join([f"第{l[0]}行" for l in r['leak_lines']]) if r['leak_lines'] else "无"
-
             note = r.get('note', '')
-
+            # ★ 构建文件类型状态后缀
+            type_status = []
+            if r.get('is_encrypted'):
+                if r.get('is_pseudo'):
+                    type_status.append('伪加密')
+                else:
+                    type_status.append('加密')
+            if r.get('is_hidden'):
+                type_status.append('隐藏')
+            status_suffix = f" ({', '.join(type_status)})" if type_status else ""
             # 按钮 — 点击弹出弹窗
             btn = (
                 f'<button class="btn btn-sm btn-outline-info" '
                 f'onclick="showModal(\'modal_{i}\')">'
                 f'查看详情</button>'
             )
-
             # 弹窗 HTML（初始隐藏）
             modal = f"""
             <div id="modal_{i}" class="my-modal-overlay" style="display:none;" onclick="closeModal('modal_{i}')">
@@ -505,7 +517,7 @@ class FileCheckerModule(BaseChecker):
                     </div>
                     <div class="my-modal-body">
                         <p><strong>文件路径：</strong>{html_mod.escape(r['path'])}</p>
-                        <p><strong>文件类型：</strong>{r['file_type']}</p>
+                        <p><strong>文件类型：</strong>{r['file_type']}{status_suffix}</p>
                         <p><strong>涉密行数：</strong>{lines_str}</p>
                         <hr>
                         <pre style="white-space:pre-wrap; word-wrap:break-word; max-height:400px; overflow-y:auto;">{lines_detail}</pre>
@@ -516,17 +528,15 @@ class FileCheckerModule(BaseChecker):
                 </div>
             </div>
             """
-
             html += f"""
             <tr>
                 <td>{r['path']}</td>
-                <td>{r['file_type']}</td>
+                <td>{r['file_type']}{status_suffix}</td>   <!-- 这里添加了状态后缀 -->
                 <td>{lines_str}</td>
                 <td>{btn}{modal}</td>
                 <td>{note}</td>
             </tr>
             """
-
         html += "</tbody></table>"
 
         # 追加弹窗所需的 CSS 和 JS（只需注入一次）
