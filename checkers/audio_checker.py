@@ -1,5 +1,6 @@
 import os
 import io
+import sys
 import tempfile
 from pathlib import Path
 from typing import List
@@ -140,8 +141,14 @@ class AudioCheckerModule(BaseChecker):
                     'file_type': 'audio',
                     'note': '' if text else '语音识别未能提取文字'
                 })
+            text_report = self._generate_text_report(results, mode="音频上传检查")
+            main_mod = sys.modules.get('__main__')
+            if main_mod:
+                main_mod.LATEST_REPORT = text_report
 
             return self._build_html_result(results)
+
+
 
     # -------------------- 内部方法 --------------------
     def _process_single_audio(self, file_path: str, detector: LeakDetector) -> dict:
@@ -171,6 +178,34 @@ class AudioCheckerModule(BaseChecker):
             'file_type': 'audio',
             'note': ''
         }
+    # ==================== ★ 新增：纯文本报告生成 ====================
+    @staticmethod
+    def _generate_text_report(results: list, mode: str = "") -> str:
+        from datetime import datetime
+        lines = []
+        lines.append("=" * 60)
+        lines.append("          音频涉密数据检查报告")
+        lines.append("=" * 60)
+        lines.append(f"检查模式: {mode}")
+        lines.append(f"检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        total_audios = len(results)
+        leak_audios = sum(1 for r in results if r['leak_lines'])
+        lines.append(f"扫描音频数: {total_audios}")
+        lines.append(f"发现涉密音频数: {leak_audios}")
+        lines.append("-" * 60)
+        for i, r in enumerate(results, 1):
+            path = r.get('path', '未知路径')
+            leak_lines = r.get('leak_lines', [])
+            lines.append(f"\n【音频 {i}】{path}")
+            if leak_lines:
+                lines.append(f"  涉密信息 ({len(leak_lines)} 处):")
+                for start_time, keyword, content in leak_lines:
+                    lines.append(f"    时间 {start_time}s | 关键词 [{keyword}] → {content}")
+            else:
+                lines.append("  未发现涉密数据。")
+        lines.append("=" * 60)
+        lines.append("报告结束")
+        return "\n".join(lines)
 
     @staticmethod
     def _build_html_result(results: list) -> str:

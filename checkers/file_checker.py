@@ -1,5 +1,6 @@
 # checkers/file_checker.py
 import os
+import sys
 from pathlib import Path
 from typing import List
 from fastapi import FastAPI, Form, File, UploadFile
@@ -368,10 +369,53 @@ class FileCheckerModule(BaseChecker):
                     'note': '' if text else '无法读取文本内容',
 
                 })
+            # ★ 新增：生成文本报告并写入全局变量
+            text_report = self._generate_text_report(results, source_type="路径")
+            main_module = sys.modules.get('__main__')
+            if main_module:
+                main_module.LATEST_REPORT = text_report
+            # =========================
             return self._build_html_result(results)
 
 
-
+    # ==================== ★ 新增：生成纯文本报告 ====================
+    @staticmethod
+    def _generate_text_report(results: list, source_type: str = "") -> str:
+        """
+        根据检查结果生成纯文本报告（用于下载）
+        """
+        import datetime
+        lines = []
+        lines.append("=" * 60)
+        lines.append("           文件涉密数据检查报告")
+        lines.append("=" * 60)
+        lines.append(f"检查方式: {source_type}")
+        lines.append(f"检查时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        total_files = len(results)
+        total_leak_files = sum(1 for r in results if r['leak_lines'])
+        lines.append(f"检查文件数: {total_files}")
+        lines.append(f"发现涉密文件数: {total_leak_files}")
+        lines.append("-" * 60)
+        if total_leak_files == 0:
+            lines.append("未发现涉密数据。")
+        else:
+            lines.append("详细结果：")
+            for r in results:
+                path = r['path']
+                leak_lines = r['leak_lines']
+                file_type = r.get('file_type', 'unknown')
+                note = r.get('note', '')
+                if leak_lines:
+                    lines.append(f"\n【文件】{path}")
+                    lines.append(f"  类型: {file_type}")
+                    if note:
+                        lines.append(f"  备注: {note}")
+                    lines.append(f"  涉密信息 ({len(leak_lines)} 处):")
+                    for line_no, keyword, content in leak_lines:
+                        lines.append(f"    第{line_no}行 | 关键词 [{keyword}] → {content}")
+        lines.append("=" * 60)
+        lines.append("报告结束")
+        return "\n".join(lines)
     @staticmethod
     def _build_html_result(results: list) -> str:
         import html as html_mod

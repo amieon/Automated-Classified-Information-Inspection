@@ -4,26 +4,13 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
+
+from utils.leak_detector import LeakDetector
 from .base_checker import BaseChecker
+import sys
 
 # ---------- 原有的检测逻辑 ----------
-class LeakDetector:
-    """涉密信息检测器（保留原有逻辑）"""
-    def __init__(self, keywords=None):
-        self.keywords = keywords or ["机密", "秘密", "绝密", "内部", "保密", "隐私"]
-        # 也可从配置文件读取
 
-    def check_text(self, text):
-        """检查文本中是否包含关键词"""
-        lines = text.split('\n')
-        leak_lines = []
-        for i, line in enumerate(lines, 1):
-            for kw in self.keywords:
-                if kw in line:
-                    # 记录行号和关键词
-                    leak_lines.append((i, kw, line.strip()))
-                    break
-        return leak_lines
 
 def check_website(start_url, max_pages=50):
     """爬取指定网站并检查涉密信息（原有的核心函数）"""
