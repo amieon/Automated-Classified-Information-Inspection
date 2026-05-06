@@ -15,6 +15,7 @@ python-magic-bin
 # 可选，用于桌面窗口
 flaskwebgui
 xlrd==1.2.0
+PyMuPDF
 olefile
 pytesseract
 openai-whisper

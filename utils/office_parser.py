@@ -4,7 +4,27 @@ from io import BytesIO
 import xml.etree.ElementTree as ET
 import re
 # ==================== Office 文件解析核心函数 ====================
+def parse_pdf(data: bytes) -> str:
+    """
+    从 PDF 字节数据中提取文本
+    依赖: pip install PyMuPDF
+    """
+    try:
+        import fitz
+    except ImportError:
+        print("  ⚠️ 需要安装 PyMuPDF: pip install PyMuPDF")
+        return ""
 
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+        texts = []
+        for page in doc:
+            texts.append(page.get_text())
+        doc.close()
+        return "\n".join(texts)
+    except Exception as e:
+        print(f"  ⚠️ PDF 解析失败: {e}")
+        return ""
 
 def parse_docx(content: bytes) -> str:
     """

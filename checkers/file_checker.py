@@ -9,7 +9,7 @@ from .base_checker import BaseChecker
 from utils.leak_detector import LeakDetector
 import zipfile
 from io import BytesIO
-from utils.office_parser import parse_xlsx, parse_docx, parse_pptx
+from utils.office_parser import parse_xlsx, parse_docx, parse_pptx, parse_pdf
 from utils.office_parser import parse_xls, parse_doc, parse_ppt
 
 # ==================== 文件类型识别（基于文件头） ====================
@@ -220,6 +220,10 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
                     return parse_pptx(data)
         except Exception as e:
             print(f"  ⚠️ Office 文件解析失败: {e}")
+
+    if len(data) >= 5 and data[:5] == b'%PDF-':
+        #print(f"  📖 检测为 pdf 文件")
+        return parse_pdf(data)
 
     # --- 旧格式 Office (OLE2) ---
     # OLE2 文件的魔数是前8字节: D0 CF 11 E0 A1 B1 1A E1
