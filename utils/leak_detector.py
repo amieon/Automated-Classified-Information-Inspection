@@ -1,16 +1,24 @@
-# checkers/leak_detector.py
+from .regex_leak_detector import RegexLeakDetector  # 确保在同一包下
+from checkers.keywords import KEYWORDS
+
+
 class LeakDetector:
-    """涉密关键词检测器"""
-    def __init__(self, keywords=None):
-        self.keywords = keywords or ["机密", "秘密", "绝密", "内部", "保密", "隐私"]
+    """涉密关键词检测器（基于正则表达式）"""
+    def __init__(self, keywords=None, mode="exact"):
+        """
+        :param keywords: 关键词列表，默认使用常见涉密词
+        :param mode: 匹配模式，可选 "exact"（精确）或 "fuzzy"（模糊）
+        """
+        self.keywords = keywords or KEYWORDS
+        self.mode = mode
+        self.detector = RegexLeakDetector(keywords=self.keywords)
 
     def check_text(self, text: str) -> list:
-        """返回涉密行列表，每项为 (行号, 关键词, 行内容)"""
+        """
+        返回涉密行列表，每项为 (行号, 关键词, 行内容)
+        内部调用 RegexLeakDetector.detect()
+        """
         lines = text.split('\n')
-        leak_lines = []
-        for i, line in enumerate(lines, 1):
-            for kw in self.keywords:
-                if kw in line:
-                    leak_lines.append((i, kw, line.strip()))
-                    break
-        return leak_lines
+        results = self.detector.detect(lines, mode=self.mode)
+        # 转换为原有格式
+        return [(r["line"], r["keyword"], r["content"]) for r in results]

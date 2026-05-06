@@ -1,5 +1,7 @@
 import re
 from typing import List, Dict, Optional
+from  checkers.keywords import KEYWORDS
+
 
 class RegexLeakDetector:
     """
@@ -10,11 +12,7 @@ class RegexLeakDetector:
     """
 
     def __init__(self, keywords: Optional[List[str]] = None):
-        self.keywords = keywords or [
-            "秘密", "机密", "绝密", "内部", "涉密",
-            "军事秘密", "国家秘密", "商业秘密",
-            "保密", "密级", "不予公开"
-        ]
+        self.keywords = keywords or KEYWORDS
 
     # ---------- 核心：生成各种模式的正则表达式 ----------
     def pattern_exact(self, keyword: str) -> str:
