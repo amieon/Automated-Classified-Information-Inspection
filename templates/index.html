@@ -4,11 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🔍 涉密检查工具</title>
-    <!-- Bootstrap 5 CSS (使用国内CDN) -->
-    <!--link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet"-->
+    <!-- Bootstrap 5 CSS -->
     <link href="/static/bootstrap.min.css" rel="stylesheet">
     <style>
-        /* 样式与原来一致，保持不变 */
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
@@ -137,33 +135,33 @@
                 <p class="text-muted">支持网页爬虫检查、文件/文件夹检查、<strong>图片OCR检查</strong>、<strong>音频转文字检查</strong>（自动识别文件类型）</p>
             </div>
 
-            <!-- 选项卡导航：新增图片和音频 -->
+            <!-- 选项卡导航 -->
             <ul class="nav nav-tabs justify-content-center" id="checkTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="web-tab" data-bs-toggle="tab" data-bs-target="#web-check" type="button" role="tab" aria-controls="web-check" aria-selected="true">🌐 网页检查</button>
+                    <button class="nav-link active" id="web-tab" data-bs-toggle="tab" data-bs-target="#web-check" type="button" role="tab">🌐 网页检查</button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="file-tab" data-bs-toggle="tab" data-bs-target="#file-check" type="button" role="tab" aria-controls="file-check" aria-selected="false">📁 文件检查</button>
+                    <button class="nav-link" id="file-tab" data-bs-toggle="tab" data-bs-target="#file-check" type="button" role="tab">📁 文件检查</button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="image-tab" data-bs-toggle="tab" data-bs-target="#image-check" type="button" role="tab" aria-controls="image-check" aria-selected="false">🖼️ 图片检查</button>
+                    <button class="nav-link" id="image-tab" data-bs-toggle="tab" data-bs-target="#image-check" type="button" role="tab">🖼️ 图片检查</button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="audio-tab" data-bs-toggle="tab" data-bs-target="#audio-check" type="button" role="tab" aria-controls="audio-check" aria-selected="false">🎵 音频检查</button>
+                    <button class="nav-link" id="audio-tab" data-bs-toggle="tab" data-bs-target="#audio-check" type="button" role="tab">🎵 音频检查</button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="db-tab" data-bs-toggle="tab" data-bs-target="#db-check" type="button" role="tab" aria-controls="db-check" aria-selected="false">🗄️ 数据库检查</button>
+                    <button class="nav-link" id="db-tab" data-bs-toggle="tab" data-bs-target="#db-check" type="button" role="tab">🗄️ 数据库检查</button>
                 </li>
             </ul>
 
             <!-- 选项卡内容 -->
             <div class="tab-content" id="checkTabsContent">
-                <!-- 网页检查标签页（不变） -->
-                <div class="tab-pane fade show active" id="web-check" role="tabpanel" aria-labelledby="web-tab">
-                    <h5 class="text-muted">🔹 输入网址</h5>
-                    <form id="webForm" action="/check/web" method="POST" target="resultFrame">
+                <!-- 网页检查 -->
+                <div class="tab-pane fade show active" id="web-check" role="tabpanel">
+                    <h5 class="text-muted">🔹 输入网址（将遍历整个网站）</h5>
+                    <form class="check-form" data-action="/check/web/url" data-method="POST">
                         <div class="input-group input-group-lg mb-3">
-                            <input type="text" name="url" class="form-control url-input" placeholder="例如：https://example.com" required>
+                            <input type="text" name="url" class="form-control url-input" placeholder="例如：https://bm.yangyq.net/" required>
                             <button type="submit" class="btn check-btn text-white px-4">
                                 <i class="bi bi-search"></i> 开始检查
                             </button>
@@ -171,12 +169,11 @@
                     </form>
                 </div>
 
-                <!-- 文件检查标签页（现有内容，保持原样） -->
-                <div class="tab-pane fade" id="file-check" role="tabpanel" aria-labelledby="file-tab">
-                    <!-- 路径输入 -->
+                <!-- 文件检查 -->
+                <div class="tab-pane fade" id="file-check" role="tabpanel">
                     <div class="mb-4">
                         <h5 class="text-muted">🔹 输入文件/文件夹路径</h5>
-                        <form id="pathForm_file" action="/check/file/path" method="POST" target="resultFrame">
+                        <form class="check-form" data-action="/check/file/path" data-method="POST">
                             <div class="input-group input-group-lg mb-3">
                                 <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\test" required>
                                 <button type="submit" class="btn check-btn text-white px-4">
@@ -185,37 +182,32 @@
                             </div>
                         </form>
                     </div>
-                    <!-- 上传文件/文件夹 -->
                     <div>
                         <h5 class="text-muted">🔹 上传文件或文件夹</h5>
-                        <form id="uploadForm_file" action="/check/file/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
+                        <form class="upload-form" data-action="/check/file/upload" data-method="POST" enctype="multipart/form-data">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
                                     <p class="mt-1">点击下方按钮选择文件或文件夹</p>
                                 </div>
                                 <div class="btn-group mb-3" role="group">
-                                    <button type="button" class="btn btn-outline-primary active" id="modeFileBtn_file" onclick="switchMode_file('file')">
-                                        <i class="bi bi-file-earmark"></i> 选择文件
-                                    </button>
-                                    <button type="button" class="btn btn-outline-primary" id="modeFolderBtn_file" onclick="switchMode_file('folder')">
-                                        <i class="bi bi-folder"></i> 选择文件夹
-                                    </button>
+                                    <button type="button" class="btn btn-outline-primary active" data-mode="file" data-target="fileInput_file">选择文件</button>
+                                    <button type="button" class="btn btn-outline-primary" data-mode="folder" data-target="folderInput_file">选择文件夹</button>
                                 </div>
                                 <input type="file" id="fileInput_file" name="files" class="form-control" multiple
                                        accept=".txt,.md,.py,.java,.js,.ts,.html,.css,.json,.xml,.yml,.yaml,.ini,.cfg,.conf,.csv,.log,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf"
-                                       style="display: none;" onchange="onFileSelected_file(event)">
+                                       style="display: none;">
                                 <input type="file" id="folderInput_file" name="files" class="form-control"
-                                       webkitdirectory multiple style="display: none;" onchange="onFileSelected_file(event)">
-                                <div id="fileInfo_file" class="mt-2 text-start" style="display: none;">
+                                       webkitdirectory multiple style="display: none;">
+                                <div id="fileInfo_file" class="mt-2 text-start" style="display:none;">
                                     <div class="alert alert-info py-2 px-3 mb-0">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <span><i class="bi bi-check-circle"></i> 已选择 <span id="fileCount_file">0</span> 个文件</span>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles_file()">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles('file')">
                                                 <i class="bi bi-x"></i> 清除全部
                                             </button>
                                         </div>
-                                        <div id="fileList_file" style="max-height: 200px; overflow-y: auto; margin-top: 8px; font-size: 0.9rem;"></div>
+                                        <div id="fileList_file" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.9rem;"></div>
                                     </div>
                                 </div>
                             </div>
@@ -226,104 +218,13 @@
                             </div>
                         </form>
                     </div>
-                    <script>
-                    // ==================== 文件检查专用脚本 ====================
-                    let currentMode_file = 'file';
-                    let selectedFiles_file = [];
-
-                    function switchMode_file(mode) {
-                        currentMode_file = mode;
-                        document.getElementById('modeFileBtn_file').classList.toggle('active', mode === 'file');
-                        document.getElementById('modeFolderBtn_file').classList.toggle('active', mode === 'folder');
-                        if (mode === 'file') {
-                            document.getElementById('fileInput_file').click();
-                        } else {
-                            document.getElementById('folderInput_file').click();
-                        }
-                    }
-
-                    function onFileSelected_file(event) {
-                        const files = event.target.files;
-                        if (!files || files.length === 0) return;
-                        Array.from(files).forEach(newFile => {
-                            const exists = selectedFiles_file.some(existing =>
-                                existing.name === newFile.name &&
-                                existing.size === newFile.size &&
-                                existing.lastModified === newFile.lastModified
-                            );
-                            if (!exists) {
-                                selectedFiles_file.push(newFile);
-                            }
-                        });
-                        event.target.value = '';
-                        updateFileInfo_file();
-                    }
-
-                    function updateFileInfo_file() {
-                        const infoDiv = document.getElementById('fileInfo_file');
-                        const countSpan = document.getElementById('fileCount_file');
-                        const fileListDiv = document.getElementById('fileList_file');
-                        const submitBtn = document.getElementById('submitBtn_file');
-                        if (selectedFiles_file.length > 0) {
-                            infoDiv.style.display = 'block';
-                            countSpan.textContent = selectedFiles_file.length;
-                            const names = selectedFiles_file.map((file, index) => {
-                                const displayName = file.webkitRelativePath || file.name;
-                                return `<span class="d-block text-truncate" title="${displayName}">${index + 1}. ${displayName}</span>`;
-                            }).join('');
-                            fileListDiv.innerHTML = names;
-                            submitBtn.disabled = false;
-                        } else {
-                            infoDiv.style.display = 'none';
-                            submitBtn.disabled = true;
-                        }
-                    }
-
-                    function clearFiles_file() {
-                        selectedFiles_file = [];
-                        document.getElementById('fileInput_file').value = '';
-                        document.getElementById('folderInput_file').value = '';
-                        updateFileInfo_file();
-                    }
-
-                    document.getElementById('uploadForm_file').addEventListener('submit', function(e) {
-                        if (selectedFiles_file.length === 0) {
-                            e.preventDefault();
-                            alert('请先选择文件或文件夹！');
-                            return;
-                        }
-                        e.preventDefault();
-                        const formData = new FormData();
-                        selectedFiles_file.forEach(file => {
-                            const path = file.webkitRelativePath || file.name;
-                            formData.append('files', file, path);
-                        });
-                        const submitBtn = document.getElementById('submitBtn_file');
-                        submitBtn.disabled = true;
-                        submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 检查中...';
-                        fetch('/check/file/upload', {
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(response => response.text())
-                        .then(html => {
-                            const resultFrame = document.getElementById('resultFrame');
-                            if (resultFrame) resultFrame.srcdoc = html;
-                        })
-                        .catch(error => alert('上传失败：' + error.message))
-                        .finally(() => {
-                            submitBtn.disabled = false;
-                            submitBtn.innerHTML = '<i class="bi bi-upload"></i> 上传并检查';
-                        });
-                    });
-                    </script>
                 </div>
 
-                <!-- ============ 图片检查标签页 (修改 action 和 fetch URL) ============ -->
-                <div class="tab-pane fade" id="image-check" role="tabpanel" aria-labelledby="image-tab">
+                <!-- 图片检查 -->
+                <div class="tab-pane fade" id="image-check" role="tabpanel">
                     <div class="mb-4">
                         <h5 class="text-muted">🔹 输入图片/文件夹路径</h5>
-                        <form id="pathForm_image" action="/check/image/path" method="POST" target="resultFrame">
+                        <form class="check-form" data-action="/check/image/path" data-method="POST">
                             <div class="input-group input-group-lg mb-3">
                                 <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\images" required>
                                 <button type="submit" class="btn check-btn text-white px-4">
@@ -334,142 +235,42 @@
                     </div>
                     <div>
                         <h5 class="text-muted">🔹 上传图片文件或包含图片的文件夹</h5>
-                        <form id="uploadForm_image" action="/check/image/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
+                        <form class="upload-form" data-action="/check/image/upload" data-method="POST" enctype="multipart/form-data">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
                                     <p class="mt-1">点击下方按钮选择图片文件或文件夹</p>
                                 </div>
                                 <div class="btn-group mb-3" role="group">
-                                    <button type="button" class="btn btn-outline-primary active" id="modeFileBtn_image" onclick="switchMode_image('file')">
-                                        <i class="bi bi-file-earmark"></i> 选择文件
-                                    </button>
-                                    <button type="button" class="btn btn-outline-primary" id="modeFolderBtn_image" onclick="switchMode_image('folder')">
-                                        <i class="bi bi-folder"></i> 选择文件夹
-                                    </button>
+                                    <button type="button" class="btn btn-outline-primary active" data-mode="file" data-target="fileInput_image">选择文件</button>
+                                    <button type="button" class="btn btn-outline-primary" data-mode="folder" data-target="folderInput_image">选择文件夹</button>
                                 </div>
                                 <input type="file" id="fileInput_image" name="files" class="form-control" multiple
-                                       accept=".jpg,.jpeg,.png,.gif,.bmp,.tiff,.webp"
-                                       style="display: none;" onchange="onFileSelected_image(event)">
+                                       accept=".jpg,.jpeg,.png,.gif,.bmp,.tiff,.webp" style="display:none;">
                                 <input type="file" id="folderInput_image" name="files" class="form-control"
-                                       webkitdirectory multiple style="display: none;" onchange="onFileSelected_image(event)">
-                                <div id="fileInfo_image" class="mt-2 text-start" style="display: none;">
+                                       webkitdirectory multiple style="display:none;">
+                                <div id="fileInfo_image" class="mt-2 text-start" style="display:none;">
                                     <div class="alert alert-info py-2 px-3 mb-0">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <span><i class="bi bi-check-circle"></i> 已选择 <span id="fileCount_image">0</span> 个文件</span>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles_image()">
-                                                <i class="bi bi-x"></i> 清除全部
-                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles('image')">清除全部</button>
                                         </div>
-                                        <div id="fileList_image" style="max-height: 200px; overflow-y: auto; margin-top: 8px; font-size: 0.9rem;"></div>
+                                        <div id="fileList_image" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.9rem;"></div>
                                     </div>
                                 </div>
                             </div>
                             <div class="text-center mt-3">
-                                <button type="submit" class="btn check-btn text-white px-4" id="submitBtn_image" disabled>
-                                    <i class="bi bi-upload"></i> 上传并检查
-                                </button>
+                                <button type="submit" class="btn check-btn text-white px-4" id="submitBtn_image" disabled>上传并检查</button>
                             </div>
                         </form>
                     </div>
-                    <script>
-                    // ==================== 图片检查专用脚本 ====================
-                    let currentMode_image = 'file';
-                    let selectedFiles_image = [];
-
-                    function switchMode_image(mode) {
-                        currentMode_image = mode;
-                        document.getElementById('modeFileBtn_image').classList.toggle('active', mode === 'file');
-                        document.getElementById('modeFolderBtn_image').classList.toggle('active', mode === 'folder');
-                        if (mode === 'file') {
-                            document.getElementById('fileInput_image').click();
-                        } else {
-                            document.getElementById('folderInput_image').click();
-                        }
-                    }
-
-                    function onFileSelected_image(event) {
-                        const files = event.target.files;
-                        if (!files || files.length === 0) return;
-                        Array.from(files).forEach(newFile => {
-                            const exists = selectedFiles_image.some(existing =>
-                                existing.name === newFile.name &&
-                                existing.size === newFile.size &&
-                                existing.lastModified === newFile.lastModified
-                            );
-                            if (!exists) {
-                                selectedFiles_image.push(newFile);
-                            }
-                        });
-                        event.target.value = '';
-                        updateFileInfo_image();
-                    }
-
-                    function updateFileInfo_image() {
-                        const infoDiv = document.getElementById('fileInfo_image');
-                        const countSpan = document.getElementById('fileCount_image');
-                        const fileListDiv = document.getElementById('fileList_image');
-                        const submitBtn = document.getElementById('submitBtn_image');
-                        if (selectedFiles_image.length > 0) {
-                            infoDiv.style.display = 'block';
-                            countSpan.textContent = selectedFiles_image.length;
-                            const names = selectedFiles_image.map((file, index) => {
-                                const displayName = file.webkitRelativePath || file.name;
-                                return `<span class="d-block text-truncate" title="${displayName}">${index + 1}. ${displayName}</span>`;
-                            }).join('');
-                            fileListDiv.innerHTML = names;
-                            submitBtn.disabled = false;
-                        } else {
-                            infoDiv.style.display = 'none';
-                            submitBtn.disabled = true;
-                        }
-                    }
-
-                    function clearFiles_image() {
-                        selectedFiles_image = [];
-                        document.getElementById('fileInput_image').value = '';
-                        document.getElementById('folderInput_image').value = '';
-                        updateFileInfo_image();
-                    }
-
-                    document.getElementById('uploadForm_image').addEventListener('submit', function(e) {
-                        if (selectedFiles_image.length === 0) {
-                            e.preventDefault();
-                            alert('请先选择文件或文件夹！');
-                            return;
-                        }
-                        e.preventDefault();
-                        const formData = new FormData();
-                        selectedFiles_image.forEach(file => {
-                            const path = file.webkitRelativePath || file.name;
-                            formData.append('files', file, path);
-                        });
-                        const submitBtn = document.getElementById('submitBtn_image');
-                        submitBtn.disabled = true;
-                        submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 检查中...';
-                        fetch('/check/image/upload', { // 修改此处 URL
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(response => response.text())
-                        .then(html => {
-                            const resultFrame = document.getElementById('resultFrame');
-                            if (resultFrame) resultFrame.srcdoc = html;
-                        })
-                        .catch(error => alert('上传失败：' + error.message))
-                        .finally(() => {
-                            submitBtn.disabled = false;
-                            submitBtn.innerHTML = '<i class="bi bi-upload"></i> 上传并检查';
-                        });
-                    });
-                    </script>
                 </div>
 
-                <!-- ============ 音频检查标签页 (修改 action 和 fetch URL) ============ -->
-                <div class="tab-pane fade" id="audio-check" role="tabpanel" aria-labelledby="audio-tab">
+                <!-- 音频检查 -->
+                <div class="tab-pane fade" id="audio-check" role="tabpanel">
                     <div class="mb-4">
                         <h5 class="text-muted">🔹 输入音频文件/文件夹路径</h5>
-                        <form id="pathForm_audio" action="/check/audio/path" method="POST" target="resultFrame">
+                        <form class="check-form" data-action="/check/audio/path" data-method="POST">
                             <div class="input-group input-group-lg mb-3">
                                 <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\audio" required>
                                 <button type="submit" class="btn check-btn text-white px-4">
@@ -480,185 +281,87 @@
                     </div>
                     <div>
                         <h5 class="text-muted">🔹 上传音频文件或包含音频的文件夹</h5>
-                        <form id="uploadForm_audio" action="/check/audio/upload" method="POST" enctype="multipart/form-data" target="resultFrame">
+                        <form class="upload-form" data-action="/check/audio/upload" data-method="POST" enctype="multipart/form-data">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
                                     <p class="mt-1">点击下方按钮选择音频文件或文件夹</p>
                                 </div>
                                 <div class="btn-group mb-3" role="group">
-                                    <button type="button" class="btn btn-outline-primary active" id="modeFileBtn_audio" onclick="switchMode_audio('file')">
-                                        <i class="bi bi-file-earmark"></i> 选择文件
-                                    </button>
-                                    <button type="button" class="btn btn-outline-primary" id="modeFolderBtn_audio" onclick="switchMode_audio('folder')">
-                                        <i class="bi bi-folder"></i> 选择文件夹
-                                    </button>
+                                    <button type="button" class="btn btn-outline-primary active" data-mode="file" data-target="fileInput_audio">选择文件</button>
+                                    <button type="button" class="btn btn-outline-primary" data-mode="folder" data-target="folderInput_audio">选择文件夹</button>
                                 </div>
                                 <input type="file" id="fileInput_audio" name="files" class="form-control" multiple
-                                       accept=".mp3,.wav,.flac,.aac,.ogg,.wma,.m4a"
-                                       style="display: none;" onchange="onFileSelected_audio(event)">
+                                       accept=".mp3,.wav,.flac,.aac,.ogg,.wma,.m4a" style="display:none;">
                                 <input type="file" id="folderInput_audio" name="files" class="form-control"
-                                       webkitdirectory multiple style="display: none;" onchange="onFileSelected_audio(event)">
-                                <div id="fileInfo_audio" class="mt-2 text-start" style="display: none;">
+                                       webkitdirectory multiple style="display:none;">
+                                <div id="fileInfo_audio" class="mt-2 text-start" style="display:none;">
                                     <div class="alert alert-info py-2 px-3 mb-0">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <span><i class="bi bi-check-circle"></i> 已选择 <span id="fileCount_audio">0</span> 个文件</span>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles_audio()">
-                                                <i class="bi bi-x"></i> 清除全部
-                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles('audio')">清除全部</button>
                                         </div>
-                                        <div id="fileList_audio" style="max-height: 200px; overflow-y: auto; margin-top: 8px; font-size: 0.9rem;"></div>
+                                        <div id="fileList_audio" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.9rem;"></div>
                                     </div>
                                 </div>
                             </div>
                             <div class="text-center mt-3">
-                                <button type="submit" class="btn check-btn text-white px-4" id="submitBtn_audio" disabled>
-                                    <i class="bi bi-upload"></i> 上传并检查
-                                </button>
+                                <button type="submit" class="btn check-btn text-white px-4" id="submitBtn_audio" disabled>上传并检查</button>
                             </div>
                         </form>
                     </div>
-                    <script>
-                    // ==================== 音频检查专用脚本 ====================
-                    let currentMode_audio = 'file';
-                    let selectedFiles_audio = [];
+                </div>
 
-                    function switchMode_audio(mode) {
-                        currentMode_audio = mode;
-                        document.getElementById('modeFileBtn_audio').classList.toggle('active', mode === 'file');
-                        document.getElementById('modeFolderBtn_audio').classList.toggle('active', mode === 'folder');
-                        if (mode === 'file') {
-                            document.getElementById('fileInput_audio').click();
-                        } else {
-                            document.getElementById('folderInput_audio').click();
-                        }
-                    }
-
-                    function onFileSelected_audio(event) {
-                        const files = event.target.files;
-                        if (!files || files.length === 0) return;
-                        Array.from(files).forEach(newFile => {
-                            const exists = selectedFiles_audio.some(existing =>
-                                existing.name === newFile.name &&
-                                existing.size === newFile.size &&
-                                existing.lastModified === newFile.lastModified
-                            );
-                            if (!exists) {
-                                selectedFiles_audio.push(newFile);
-                            }
-                        });
-                        event.target.value = '';
-                        updateFileInfo_audio();
-                    }
-
-                    function updateFileInfo_audio() {
-                        const infoDiv = document.getElementById('fileInfo_audio');
-                        const countSpan = document.getElementById('fileCount_audio');
-                        const fileListDiv = document.getElementById('fileList_audio');
-                        const submitBtn = document.getElementById('submitBtn_audio');
-                        if (selectedFiles_audio.length > 0) {
-                            infoDiv.style.display = 'block';
-                            countSpan.textContent = selectedFiles_audio.length;
-                            const names = selectedFiles_audio.map((file, index) => {
-                                const displayName = file.webkitRelativePath || file.name;
-                                return `<span class="d-block text-truncate" title="${displayName}">${index + 1}. ${displayName}</span>`;
-                            }).join('');
-                            fileListDiv.innerHTML = names;
-                            submitBtn.disabled = false;
-                        } else {
-                            infoDiv.style.display = 'none';
-                            submitBtn.disabled = true;
-                        }
-                    }
-
-                    function clearFiles_audio() {
-                        selectedFiles_audio = [];
-                        document.getElementById('fileInput_audio').value = '';
-                        document.getElementById('folderInput_audio').value = '';
-                        updateFileInfo_audio();
-                    }
-
-                    document.getElementById('uploadForm_audio').addEventListener('submit', function(e) {
-                        if (selectedFiles_audio.length === 0) {
-                            e.preventDefault();
-                            alert('请先选择文件或文件夹！');
-                            return;
-                        }
-                        e.preventDefault();
-                        const formData = new FormData();
-                        selectedFiles_audio.forEach(file => {
-                            const path = file.webkitRelativePath || file.name;
-                            formData.append('files', file, path);
-                        });
-                        const submitBtn = document.getElementById('submitBtn_audio');
-                        submitBtn.disabled = true;
-                        submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 检查中...';
-                        fetch('/check/audio/upload', { // 修改此处 URL
-                            method: 'POST',
-                            body: formData
-                        })
-                        .then(response => response.text())
-                        .then(html => {
-                            const resultFrame = document.getElementById('resultFrame');
-                            if (resultFrame) resultFrame.srcdoc = html;
-                        })
-                        .catch(error => alert('上传失败：' + error.message))
-                        .finally(() => {
-                            submitBtn.disabled = false;
-                            submitBtn.innerHTML = '<i class="bi bi-upload"></i> 上传并检查';
-                        });
-                    });
-                    </script>
+                <!-- 数据库检查（保留原样） -->
+                <div class="tab-pane fade" id="db-check" role="tabpanel">
+                    <div class="mb-4">
+                        <h5 class="text-muted">🔹 填写数据库连接信息</h5>
+                        <form class="check-form" data-action="/check/db/connect" data-method="POST">
+                            <!-- 内部结构不变 -->
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">数据库类型</label>
+                                    <select name="db_type" class="form-select">
+                                        <option value="mysql">MySQL</option>
+                                        <option value="postgresql">PostgreSQL</option>
+                                        <option value="sqlite">SQLite</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">主机地址</label>
+                                    <input type="text" name="host" class="form-control" placeholder="localhost" value="localhost">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">端口</label>
+                                    <input type="number" name="port" class="form-control" placeholder="3306">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">数据库名 / SQLite文件路径</label>
+                                    <input type="text" name="dbname" class="form-control" placeholder="mydb 或 /path/to/db.sqlite" required>
+                                </div>
+                            </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">用户名</label>
+                                    <input type="text" name="user" class="form-control" placeholder="root">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">密码</label>
+                                    <input type="password" name="password" class="form-control" placeholder="密码">
+                                </div>
+                                <div class="col-md-4 d-flex align-items-end">
+                                    <button type="submit" class="btn check-btn text-white px-4 w-100">开始检查</button>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">或直接输入连接字符串（可选）</label>
+                                <input type="text" name="conn_str" class="form-control" placeholder="mysql+pymysql://user:pass@host:port/dbname">
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
-            <div class="tab-pane fade" id="db-check" role="tabpanel" aria-labelledby="db-tab">
-                <div class="mb-4">
-                    <h5 class="text-muted">🔹 填写数据库连接信息</h5>
-                    <form id="dbForm" action="/check/db/connect" method="POST" target="resultFrame">
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-3">
-                                <label class="form-label">数据库类型</label>
-                                <select name="db_type" class="form-select">
-                                    <option value="mysql">MySQL</option>
-                                    <option value="postgresql">PostgreSQL</option>
-                                    <option value="sqlite">SQLite</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">主机地址</label>
-                                <input type="text" name="host" class="form-control" placeholder="localhost" value="localhost">
-                            </div>
-                            <div class="col-md-2">
-                                <label class="form-label">端口</label>
-                                <input type="number" name="port" class="form-control" placeholder="3306">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">数据库名 / SQLite文件路径</label>
-                                <input type="text" name="dbname" class="form-control" placeholder="mydb 或 /path/to/db.sqlite" required>
-                            </div>
-                        </div>
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-4">
-                                <label class="form-label">用户名</label>
-                                <input type="text" name="user" class="form-control" placeholder="root">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">密码</label>
-                                <input type="password" name="password" class="form-control" placeholder="密码">
-                            </div>
-                            <div class="col-md-4 d-flex align-items-end">
-                                <button type="submit" class="btn check-btn text-white px-4 w-100">
-                                    <i class="bi bi-database-check"></i> 开始检查
-                                </button>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">或直接输入连接字符串（可选，填此则忽略上方参数）</label>
-                            <input type="text" name="conn_str" class="form-control" placeholder="mysql+pymysql://user:pass@host:port/dbname">
-                        </div>
-                    </form>
-                </div>
-            </div>
+
             <!-- 加载动画 -->
             <div id="loading" class="text-center py-4" style="display: none;">
                 <div class="spinner-border text-primary" role="status">
@@ -667,13 +370,9 @@
                 <p class="loading-text mt-2">正在检查，请稍候...</p>
             </div>
 
-            <!-- 结果iframe容器 -->
-<!--            <div id="resultContainer" class="result-container">-->
-<!--                <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>-->
-<!--            </div>-->
+            <!-- 结果iframe容器 + 下载按钮 -->
             <div id="resultContainer" class="result-container">
                 <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>
-                <!-- ========== 新增：下载按钮 ========== -->
                 <div class="text-center mt-3">
                     <button id="downloadReportBtn" class="btn btn-success btn-lg" style="display:none;">
                         <i class="bi bi-download"></i> 下载报告
@@ -681,11 +380,9 @@
                 </div>
             </div>
 
-            <!-- 错误提示（不变） -->
             <div id="errorPlaceholder" class="alert alert-info mt-3">
                 请选择检测方式后点击按钮，结果将显示在此处。
             </div>
-
         </div>
 
         <div class="text-center footer-text">
@@ -693,27 +390,165 @@
         </div>
     </div>
 
-    <!-- Bootstrap 5 JS -->
-    <!--script-- src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script-->
     <script src="/static/bootstrap.bundle.min.js"></script>
+
     <script>
-        // ==================== 全局表单提交、iframe 加载、选项卡切换（保持不变） ====================
-        const forms = document.querySelectorAll('form'); // 包含所有标签页的表单
+        // ==================== 全局状态 ====================
         const loading = document.getElementById('loading');
         const resultContainer = document.getElementById('resultContainer');
         const resultFrame = document.getElementById('resultFrame');
         const errorPlaceholder = document.getElementById('errorPlaceholder');
+        const downloadBtn = document.getElementById('downloadReportBtn');
 
-        forms.forEach(form => {
-            form.addEventListener('submit', function(e) {
-                loading.style.display = 'block';
-                resultContainer.style.display = 'none';
-                errorPlaceholder.style.display = 'none';
-                resultFrame.srcdoc = '';
-                // 不阻止默认提交，表单 target 指向 iframe
+        // ==================== 通用文件选择管理 ====================
+        const fileStores = {};
+
+        function initFileType(type) {
+            if (!fileStores[type]) {
+                fileStores[type] = [];
+            }
+        }
+
+        function switchMode(type, mode) {
+            initFileType(type);
+            const modeBtn = document.querySelector(`[data-target="fileInput_${type}"]`);
+            const folderBtn = document.querySelector(`[data-target="folderInput_${type}"]`);
+            if (mode === 'file') {
+                modeBtn.classList.add('active');
+                folderBtn.classList.remove('active');
+                document.getElementById(`fileInput_${type}`).click();
+            } else {
+                modeBtn.classList.remove('active');
+                folderBtn.classList.add('active');
+                document.getElementById(`folderInput_${type}`).click();
+            }
+        }
+
+        function onFileSelected(type, event) {
+            initFileType(type);
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+            Array.from(files).forEach(newFile => {
+                const exists = fileStores[type].some(existing =>
+                    existing.name === newFile.name &&
+                    existing.size === newFile.size &&
+                    existing.lastModified === newFile.lastModified
+                );
+                if (!exists) {
+                    fileStores[type].push(newFile);
+                }
+            });
+            event.target.value = '';
+            updateFileInfo(type);
+        }
+
+        function updateFileInfo(type) {
+            const store = fileStores[type] || [];
+            const infoDiv = document.getElementById(`fileInfo_${type}`);
+            const countSpan = document.getElementById(`fileCount_${type}`);
+            const fileListDiv = document.getElementById(`fileList_${type}`);
+            const submitBtn = document.getElementById(`submitBtn_${type}`);
+            if (store.length > 0) {
+                infoDiv.style.display = 'block';
+                countSpan.textContent = store.length;
+                const names = store.map((file, index) => {
+                    const displayName = file.webkitRelativePath || file.name;
+                    return `<span class="d-block text-truncate" title="${displayName}">${index + 1}. ${displayName}</span>`;
+                }).join('');
+                fileListDiv.innerHTML = names;
+                submitBtn.disabled = false;
+            } else {
+                infoDiv.style.display = 'none';
+                submitBtn.disabled = true;
+            }
+        }
+
+        function clearFiles(type) {
+            initFileType(type);
+            fileStores[type] = [];
+            document.getElementById(`fileInput_${type}`).value = '';
+            document.getElementById(`folderInput_${type}`).value = '';
+            updateFileInfo(type);
+        }
+
+        // 绑定所有上传模式按钮和文件输入
+        document.querySelectorAll('.btn-group .btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                const targetInputId = this.dataset.target;
+                const type = targetInputId.replace('fileInput_', '').replace('folderInput_', '');
+                const mode = this.dataset.mode;
+                switchMode(type, mode);
             });
         });
 
+        document.querySelectorAll('input[type="file"][id^="fileInput_"], input[type="file"][id^="folderInput_"]').forEach(input => {
+            input.addEventListener('change', function(e) {
+                const type = this.id.replace('fileInput_', '').replace('folderInput_', '');
+                onFileSelected(type, e);
+            });
+        });
+
+        // ==================== 统一表单提交处理 ====================
+        function submitForm(form, formData) {
+            loading.style.display = 'block';
+            resultContainer.style.display = 'none';
+            errorPlaceholder.style.display = 'none';
+            downloadBtn.style.display = 'none';
+
+            const action = form.dataset.action;
+            const method = form.dataset.method || 'POST';
+
+            fetch(action, {
+                method: method,
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.text();
+            })
+            .then(html => {
+                // 渲染到 iframe
+                resultFrame.srcdoc = html;
+                // iframe load 时会处理显示/隐藏
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                errorPlaceholder.style.display = 'block';
+                errorPlaceholder.innerHTML = `<div class="alert alert-danger">请求失败：${error.message}</div>`;
+            });
+        }
+
+        // 为所有 check-form 绑定提交事件
+        document.querySelectorAll('.check-form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                submitForm(this, formData);
+            });
+        });
+
+        // 为所有 upload-form 绑定提交事件（需要构造包含所选文件的 FormData）
+        document.querySelectorAll('.upload-form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const type = this.id ? this.id.replace('uploadForm_', '') : 'file'; // fallback
+                // 实际上我们从 data-action 获取
+                const action = this.dataset.action;
+                const store = fileStores[type] || [];
+                if (store.length === 0) {
+                    alert('请先选择文件或文件夹！');
+                    return;
+                }
+                const formData = new FormData();
+                store.forEach(file => {
+                    const path = file.webkitRelativePath || file.name;
+                    formData.append('files', file, path);
+                });
+                submitForm(this, formData);
+            });
+        });
+
+        // ==================== iframe 加载完成处理 ====================
         resultFrame.addEventListener('load', function() {
             loading.style.display = 'none';
             try {
@@ -722,56 +557,26 @@
                 if (bodyContent.length > 0) {
                     resultContainer.style.display = 'block';
                     errorPlaceholder.style.display = 'none';
-                    iframeDoc.body.style.overflow = 'hidden';
-                    resultFrame.style.height = iframeDoc.documentElement.scrollHeight + 'px';
+                    // 自适应高度
+                    const height = iframeDoc.documentElement.scrollHeight || iframeDoc.body.scrollHeight;
+                    resultFrame.style.height = height + 'px';
+                    // 显示下载按钮
+                    downloadBtn.style.display = 'inline-block';
                 } else {
                     resultContainer.style.display = 'none';
                     errorPlaceholder.style.display = 'block';
-                }
-            } catch (e) {
-                resultContainer.style.display = 'block';
-                errorPlaceholder.style.display = 'none';
-            }
-        });
-
-        window.addEventListener('load', function() {
-            try {
-                const iframeDoc = resultFrame.contentDocument || resultFrame.contentWindow.document;
-                if (iframeDoc && iframeDoc.body) {
-                    resultFrame.style.height = iframeDoc.documentElement.scrollHeight + 'px';
-                }
-            } catch(e) {}
-        });
-
-        document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
-            tab.addEventListener('shown.bs.tab', function (e) {
-                resultFrame.srcdoc = '';
-                resultContainer.style.display = 'none';
-                errorPlaceholder.style.display = 'none';
-                loading.style.display = 'none';
-            });
-        });
-
-        // 当结果加载成功后，显示下载按钮
-        resultFrame.addEventListener('load', function() {
-            // ... 原有逻辑 ...
-            // 显示或隐藏下载按钮
-            const downloadBtn = document.getElementById('downloadReportBtn');
-            try {
-                const iframeDoc = resultFrame.contentDocument || resultFrame.contentWindow.document;
-                const bodyContent = iframeDoc.body ? iframeDoc.body.innerHTML.trim() : '';
-                if (bodyContent.length > 0) {
-                    downloadBtn.style.display = 'inline-block'; // 显示按钮
-                } else {
                     downloadBtn.style.display = 'none';
                 }
             } catch (e) {
-                downloadBtn.style.display = 'none';
+                // 跨域或其他错误
+                resultContainer.style.display = 'block';
+                errorPlaceholder.style.display = 'none';
+                downloadBtn.style.display = 'inline-block'; // 仍尝试显示下载
             }
         });
 
-        // 下载按钮点击事件
-        document.getElementById('downloadReportBtn').addEventListener('click', function() {
+        // ==================== 下载报告 ====================
+        downloadBtn.addEventListener('click', function() {
             fetch('/download_report')
                 .then(response => {
                     if (!response.ok) throw new Error('下载失败');
@@ -791,7 +596,16 @@
                 .catch(err => alert('报告下载失败：' + err.message));
         });
 
-        // 在全局脚本中（例如在原有 script 标签内）添加以下代码
+        // ==================== 选项卡切换时重置 ====================
+        document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
+            tab.addEventListener('shown.bs.tab', function () {
+                resultFrame.srcdoc = '';
+                resultContainer.style.display = 'none';
+                errorPlaceholder.style.display = 'none';
+                loading.style.display = 'none';
+                downloadBtn.style.display = 'none';
+            });
+        });
     </script>
 </body>
 </html>

@@ -21,3 +21,4 @@ openai-whisper
 sqlalchemy
 pymysql
 requests
+lxml
