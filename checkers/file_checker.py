@@ -387,36 +387,73 @@ class FileCheckerModule(BaseChecker):
     def _generate_text_report(results: list, source_type: str = "") -> str:
         """
         根据检查结果生成纯文本报告（用于下载）
+        统计总文件数、每种类型数量、涉密文件数、加密/隐藏文件数等
         """
         import datetime
+        from collections import Counter
+
         lines = []
         lines.append("=" * 60)
         lines.append("           文件涉密数据检查报告")
         lines.append("=" * 60)
         lines.append(f"检查方式: {source_type}")
         lines.append(f"检查时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # ---- 统计信息 ----
         total_files = len(results)
         total_leak_files = sum(1 for r in results if r['leak_lines'])
-        lines.append(f"检查文件数: {total_files}")
-        lines.append(f"发现涉密文件数: {total_leak_files}")
+
+        # 统计每种文件类型的数量
+        type_counter = Counter(r.get('file_type', 'unknown') for r in results)
+        # 统计加密/隐藏文件（假设 results 中已有 'is_encrypted' 和 'is_hidden' 字段）
+        encrypted_count = sum(1 for r in results if r.get('is_encrypted'))
+        hidden_count = sum(1 for r in results if r.get('is_hidden'))
+
+        lines.append("")
+        lines.append("---- 统计概览 ----")
+        lines.append(f"总文件数:                    {total_files}")
+        lines.append(f"检查到涉密信息的文件数:     {total_leak_files}")
+        lines.append(f"加密文件数:                  {encrypted_count}")
+        lines.append(f"隐藏文件数:                  {hidden_count}")
+        lines.append("")
+
+        # 各类型文件数量
+        lines.append("---- 各类型文件数量 ----")
+        for ftype, cnt in sorted(type_counter.items()):
+            lines.append(f"  {ftype:<12}: {cnt}")
+        lines.append("")
+
+        # ---- 详细结果 ----
         lines.append("-" * 60)
         if total_leak_files == 0:
             lines.append("未发现涉密数据。")
         else:
-            lines.append("详细结果：")
+            lines.append(f"详细结果（共 {total_leak_files} 个涉密文件）：")
             for r in results:
                 path = r['path']
-                leak_lines = r['leak_lines']
                 file_type = r.get('file_type', 'unknown')
-                note = r.get('note', '')
+                leak_lines = r['leak_lines']
+                note = r.get('note', '')  # 备注（如加密/隐藏状态等）
+                is_enc = r.get('is_encrypted', False)
+                is_hid = r.get('is_hidden', False)
+
                 if leak_lines:
                     lines.append(f"\n【文件】{path}")
                     lines.append(f"  类型: {file_type}")
+                    # 附加状态标记
+                    status_parts = []
+                    if is_enc:
+                        status_parts.append("加密")
+                    if is_hid:
+                        status_parts.append("隐藏")
                     if note:
-                        lines.append(f"  备注: {note}")
+                        status_parts.append(note)
+                    if status_parts:
+                        lines.append(f"  状态: {'，'.join(status_parts)}")
                     lines.append(f"  涉密信息 ({len(leak_lines)} 处):")
                     for line_no, keyword, content in leak_lines:
                         lines.append(f"    第{line_no}行 | 关键词 [{keyword}] → {content}")
+
         lines.append("=" * 60)
         lines.append("报告结束")
         return "\n".join(lines)
