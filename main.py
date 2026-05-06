@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
-
+LATEST_REPORT = ""
 # 模块注册表 - 可通过配置文件或环境变量动态扩展
 CHECKER_MODULES = {
     "web": "checkers.web_checker.WebCheckerModule",
@@ -22,6 +22,13 @@ def create_app(modules: list = None):
     app.mount("/static", StaticFiles(directory="static"), name="static")
     templates = Jinja2Templates(directory="templates")
 
+    @app.get("/download_report")
+    async def download_report():
+        if not LATEST_REPORT:
+            from fastapi.responses import PlainTextResponse
+            return PlainTextResponse("暂无报告", status_code=400)
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(LATEST_REPORT, media_type="text/plain; charset=utf-8")
 
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request):
@@ -44,6 +51,9 @@ def create_app(modules: list = None):
             print(f"⚠️ 未知模块: {mod_name}，已跳过")
 
     return app
+
+
+
 
 if __name__ == "__main__":
     # 使用 argparse 解析命令行参数（可选的）

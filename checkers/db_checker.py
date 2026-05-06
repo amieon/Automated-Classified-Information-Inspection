@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
@@ -292,6 +293,18 @@ class DBCheckerModule(BaseChecker):
 
                 # 构建结果HTML
                 html = self._build_html_result(all_results, tables, searched_tables)
+                # ========== ★ 新增：生成纯文本报告并写入全局变量 ==========
+                text_report = self._generate_text_report(
+                    results=all_results,
+                    all_tables=tables,
+                    searched_tables=searched_tables,
+                    db_info=f"MySQL {host}:{port}/{database or dbname}"
+                )
+                # 写入主模块的 LATEST_REPORT 变量
+                main_module = sys.modules.get('__main__')
+                if main_module:
+                    main_module.LATEST_REPORT = text_report
+                # ================================================
                 return HTMLResponse(content=html)
 
             finally:
@@ -351,12 +364,57 @@ class DBCheckerModule(BaseChecker):
                     searched_tables += 1
 
                 html = self._build_html_result(all_results, tables, searched_tables, db_path=str(p))
+                # ========== ★ 新增：生成纯文本报告并写入全局变量 ==========
+                text_report = self._generate_text_report(
+                    results=all_results,
+                    all_tables=tables,
+                    searched_tables=searched_tables,
+                    db_info=f"SQLite 文件: {p}"
+                )
+                main_module = sys.modules.get('__main__')
+                if main_module:
+                    main_module.LATEST_REPORT = text_report
+                # ================================================
                 return HTMLResponse(content=html)
 
             finally:
                 connector.disconnect()
 
     # ==================== 内部方法 ====================
+    def _generate_text_report(self, results: list, all_tables: list,
+                              searched_tables: int, db_info: str) -> str:
+        """生成可供下载的纯文本检查报告"""
+        lines = []
+        lines.append("=" * 60)
+        lines.append("          数据库涉密数据检查报告")
+        lines.append("=" * 60)
+        lines.append(f"数据库信息: {db_info}")
+        lines.append(f"检查时间: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"扫描表数: {searched_tables}")
+        lines.append(f"涉密数据条数: {len(results)}")
+        affected_tables = len(set(r['table'] for r in results))
+        lines.append(f"涉及表数: {affected_tables}")
+        lines.append("-" * 60)
+        if not results:
+            lines.append("未发现涉密数据。")
+        else:
+            # 按表分组
+            table_groups = {}
+            for r in results:
+                tbl = r['table']
+                table_groups.setdefault(tbl, []).append(r)
+            lines.append("详细结果：")
+            for table_name, items in table_groups.items():
+                lines.append(f"\n【表名】{table_name} (共 {len(items)} 条)")
+                for item in items:
+                    row_pk = item.get('row_pk', 'N/A')
+                    column = item.get('column', '')
+                    keyword = item.get('keyword', '')
+                    content = item.get('content', '')
+                    lines.append(f"  行 {row_pk} | 字段 {column} | 关键词 [{keyword}] → {content}")
+        lines.append("=" * 60)
+        lines.append("报告结束")
+        return "\n".join(lines)
 
     def _build_html_result(self, results: list, all_tables: list,
                            searched_tables: int, db_path: str = "") -> str:
@@ -501,3 +559,5 @@ class DBCheckerModule(BaseChecker):
         """
 
         return html
+
+

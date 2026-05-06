@@ -668,14 +668,24 @@
             </div>
 
             <!-- 结果iframe容器 -->
+<!--            <div id="resultContainer" class="result-container">-->
+<!--                <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>-->
+<!--            </div>-->
             <div id="resultContainer" class="result-container">
                 <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>
+                <!-- ========== 新增：下载按钮 ========== -->
+                <div class="text-center mt-3">
+                    <button id="downloadReportBtn" class="btn btn-success btn-lg" style="display:none;">
+                        <i class="bi bi-download"></i> 下载报告
+                    </button>
+                </div>
             </div>
 
             <!-- 错误提示（不变） -->
             <div id="errorPlaceholder" class="alert alert-info mt-3">
                 请选择检测方式后点击按钮，结果将显示在此处。
             </div>
+
         </div>
 
         <div class="text-center footer-text">
@@ -741,6 +751,47 @@
                 loading.style.display = 'none';
             });
         });
+
+        // 当结果加载成功后，显示下载按钮
+        resultFrame.addEventListener('load', function() {
+            // ... 原有逻辑 ...
+            // 显示或隐藏下载按钮
+            const downloadBtn = document.getElementById('downloadReportBtn');
+            try {
+                const iframeDoc = resultFrame.contentDocument || resultFrame.contentWindow.document;
+                const bodyContent = iframeDoc.body ? iframeDoc.body.innerHTML.trim() : '';
+                if (bodyContent.length > 0) {
+                    downloadBtn.style.display = 'inline-block'; // 显示按钮
+                } else {
+                    downloadBtn.style.display = 'none';
+                }
+            } catch (e) {
+                downloadBtn.style.display = 'none';
+            }
+        });
+
+        // 下载按钮点击事件
+        document.getElementById('downloadReportBtn').addEventListener('click', function() {
+            fetch('/download_report')
+                .then(response => {
+                    if (!response.ok) throw new Error('下载失败');
+                    return response.text();
+                })
+                .then(text => {
+                    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `涉密检查报告_${new Date().toISOString().slice(0,10)}.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                })
+                .catch(err => alert('报告下载失败：' + err.message));
+        });
+
+        // 在全局脚本中（例如在原有 script 标签内）添加以下代码
     </script>
 </body>
 </html>
