@@ -235,7 +235,7 @@
                     </div>
                     <div>
                         <h5 class="text-muted">🔹 上传图片文件或包含图片的文件夹</h5>
-                        <form class="upload-form" data-action="/check/image/upload" data-method="POST" enctype="multipart/form-data">
+                        <form class="upload-form" data-action="/check/image/upload" data-method="POST" enctype="multipart/form-data" data-type="image">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
@@ -281,7 +281,7 @@
                     </div>
                     <div>
                         <h5 class="text-muted">🔹 上传音频文件或包含音频的文件夹</h5>
-                        <form class="upload-form" data-action="/check/audio/upload" data-method="POST" enctype="multipart/form-data">
+                        <form class="upload-form" data-action="/check/audio/upload" data-method="POST" enctype="multipart/form-data" data-type="audio">
                             <div class="file-upload-area">
                                 <div class="mb-2">
                                     <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
@@ -531,7 +531,7 @@
         document.querySelectorAll('.upload-form').forEach(form => {
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
-                const type = this.id ? this.id.replace('uploadForm_', '') : 'file'; // fallback
+                const type = this.dataset.type || 'file';
                 // 实际上我们从 data-action 获取
                 const action = this.dataset.action;
                 const store = fileStores[type] || [];
