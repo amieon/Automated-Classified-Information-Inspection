@@ -144,14 +144,14 @@ class ImageCheckerModule(BaseChecker):
                 'file_type': 'unknown',
                 'note': '不是图片文件'
             }
-
+        img_format = self._get_image_format(file_path)
         # 2. OCR
         text = ocr_image(file_path)
         if not text:
             return {
                 'path': file_path,
                 'leak_lines': [],
-                'file_type': 'image',
+                'file_type': img_format,
                 'note': '图片中未检测到文字'
             }
 
@@ -160,9 +160,21 @@ class ImageCheckerModule(BaseChecker):
         return {
             'path': file_path,
             'leak_lines': leak_lines,
-            'file_type': 'image',
+            'file_type': img_format,
             'note': ''
         }
+
+    @staticmethod
+    def _get_image_format(file_path: str) -> str:
+        with open(file_path, 'rb') as f:
+            header = f.read(16)
+        for magic, fmt in IMAGE_HEADERS.items():
+            if header.startswith(magic):
+                return fmt
+        # 补充JPEG判断（前两个字节0xFFD8）
+        if len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
+            return 'jpeg'
+        return 'unknown'
 
     @staticmethod
     def _is_image_bytes(data: bytes) -> bool:
@@ -180,6 +192,10 @@ class ImageCheckerModule(BaseChecker):
     @staticmethod
     def _generate_text_report(results: list, mode: str = "") -> str:
         from datetime import datetime
+        from collections import Counter
+        total_leak_lines = sum(len(r['leak_lines']) for r in results)
+        type_counter = Counter(r.get('file_type', 'unknown') for r in results)
+        type_str = "\n" + "\n".join([f"   {fmt}: {cnt}" for fmt, cnt in type_counter.items()])
         lines = []
         lines.append("=" * 60)
         lines.append("          图片涉密数据检查报告")
@@ -189,7 +205,9 @@ class ImageCheckerModule(BaseChecker):
         total_images = len(results)
         leak_images = sum(1 for r in results if r['leak_lines'])
         lines.append(f"扫描图片数: {total_images}")
+        lines.append(f"图片类型分布: {type_str}")
         lines.append(f"发现涉密图片数: {leak_images}")
+        lines.append(f"涉密数据总行数: {total_leak_lines}")
         lines.append("-" * 60)
         for i, r in enumerate(results, 1):
             path = r.get('path', '未知路径')
