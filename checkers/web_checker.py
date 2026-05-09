@@ -1,6 +1,5 @@
 # checkers/web_checker.py
 import sys
-import re
 import requests
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
@@ -8,7 +7,7 @@ from typing import List, Set, Tuple
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
-from utils.leak_detector import LeakDetector
+from detector.leak_detector import LeakDetector
 
 
 class WebCheckerModule(BaseChecker):

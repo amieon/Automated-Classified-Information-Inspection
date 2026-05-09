@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from utils.hidden_and_encrypted_checker import is_hidden_file, check_encryption
 from .base_checker import BaseChecker
-from utils.leak_detector import LeakDetector
+from detector.leak_detector import LeakDetector
 import zipfile
 from io import BytesIO
 from utils.office_parser import parse_xlsx, parse_docx, parse_pptx, parse_pdf

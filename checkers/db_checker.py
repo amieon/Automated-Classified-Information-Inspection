@@ -1,12 +1,10 @@
-import os
-import re
 import sys
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 from pathlib import Path
 from .base_checker import BaseChecker
-from utils.leak_detector import LeakDetector
+from detector.leak_detector import LeakDetector
 
 
 # ==================== 数据库连接器 ====================

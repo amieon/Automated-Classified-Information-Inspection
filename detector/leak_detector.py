@@ -25,7 +25,7 @@ class LeakDetector:
             # 把 max_insert 传给 RegexLeakDetector（需要它也支持）
             self.detector = RegexLeakDetector(
                 keywords=self.keywords,
-                max_insert=max_insert
+                max_errors=max_insert
             )
         else:
             self.detector = ACLeakDetector(keywords=self.keywords)

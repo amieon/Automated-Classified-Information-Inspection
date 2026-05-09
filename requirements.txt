@@ -26,3 +26,4 @@ lxml
 py7zr
 rarfile
 pyahocorasick
+regex

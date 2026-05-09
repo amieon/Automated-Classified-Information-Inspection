@@ -3,14 +3,13 @@ from typing import List
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
-from utils.leak_detector import LeakDetector
+from detector.leak_detector import LeakDetector
 from PIL import Image
 import io
 import pytesseract
 import sys
 # 自动检测并设置 tesseract 路径
 if sys.platform == 'win32':
-    import platform
     possible_paths = [
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",

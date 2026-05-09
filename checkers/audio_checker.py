@@ -1,5 +1,4 @@
 import os
-import io
 import sys
 import tempfile
 from pathlib import Path
@@ -7,7 +6,7 @@ from typing import List
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
-from utils.leak_detector import LeakDetector
+from detector.leak_detector import LeakDetector
 
 # ==================== 音频文件魔数 ====================
 AUDIO_MAGIC = {
