@@ -1,13 +1,15 @@
 # checkers/web_checker.py
 import sys
-import requests
+import asyncio
+import aiohttp
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
+from utils.parallel import run_parallel          # 你的多进程并行工具
 
 
 class WebCheckerModule(BaseChecker):
@@ -19,137 +21,121 @@ class WebCheckerModule(BaseChecker):
             keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
             max_insert: int = Form(3)
         ):
-            detector = LeakDetector(
-                keywords=keywords,
-                algorithm=algorithm,
-                max_insert=max_insert
+            detector_kwargs = dict(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+            # ---------- 1. 异步爬取 ----------
+            all_pages = await self._crawl_website_async(url)
+            # ---------- 2. 多进程涉密检测 ----------
+            # ✅ 修复：把 detector_kwargs 和页面数据打包，传给模块级函数
+            items_with_kwargs = [(detector_kwargs, item) for item in all_pages]
+            results = await asyncio.to_thread(
+                run_parallel,
+                process_func=_check_single_page_with_kwargs,  # ← 模块顶层函数
+                items=items_with_kwargs,
+                max_workers=4,
+                executor_type="process",
+                collect_results=True
             )
-
-            # ---------- 1. 爬取网站所有页面 ----------
-            all_pages = self._crawl_website(url)
-
-            # ---------- 2. 逐页检查涉密信息 ----------
-            results = []
-            for page_url, html_content in all_pages:
-                # 提取纯文本
-
-                soup = BeautifulSoup(html_content, 'html.parser')
-
-                # 去掉 script 和 style 标签
-                for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
-                    tag.decompose()
-
-                text = soup.get_text(separator='\n', strip=True)
-
-                # 检查涉密信息
-                leak_lines = detector.check_text(text)
-
-                results.append({
-                    'url': page_url,
-                    'leak_lines': leak_lines,
-                    'note': '' if text else '无法读取页面内容'
-                })
-
-            # ---------- 3. 生成 HTML 结果 ----------
+            # ---------- 3 & 4 不变 ----------
             html = self._build_html_result(results)
-
-            # ---------- 4. 生成纯文本报告并写入全局变量 ----------
             text_report = self._generate_text_report(results, mode="网页爬取检查")
             main_mod = sys.modules.get('__main__')
             if main_mod:
                 main_mod.LATEST_REPORT = text_report
-
             return HTMLResponse(content=html)
 
-    # ==================== 爬虫核心方法 ====================
+
+
+    # ==================== 异步爬虫核心 ====================
     @staticmethod
-    def _crawl_website(start_url: str, max_pages: int = 500) -> List[Tuple[str, str]]:
-        """
-        从 start_url 出发，遍历网站所有同域名页面
-        返回 [(url, html_content), ...]
-        """
-        # 解析起始域名，只爬同一域名下的页面
+    async def _crawl_website_async(
+            start_url: str,
+            max_pages: int = 500,
+            concurrency: int = 10
+    ) -> List[Tuple[str, str]]:
         parsed_start = urlparse(start_url)
         base_domain = parsed_start.netloc
-        base_scheme = parsed_start.scheme
-
-        visited: Set[str] = set()  # 已访问的 URL
-        to_visit: Set[str] = {start_url}  # 待访问的 URL
+        visited: Set[str] = set()
+        to_visit: List[str] = []
+        initial_url = start_url.split('#')[0]
+        to_visit.append(initial_url)
+        visited.add(initial_url)
         results: List[Tuple[str, str]] = []
-
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                          '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
         }
+        semaphore = asyncio.Semaphore(concurrency)
 
-        # 循环爬取，直到没有新页面或达到上限
-        while to_visit and len(visited) < max_pages:
-            # 取出一个待访问的 URL
-            current_url = to_visit.pop()
-            if current_url in visited:
-                continue
+        async def fetch(session: aiohttp.ClientSession, url: str) -> Optional[Tuple[str, str, str]]:
+            """返回 (url, html, content_type) 三元组，增加 content_type 用于判断解析器"""
+            async with semaphore:
+                try:
+                    async with session.get(
+                            url,
+                            headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=15)
+                    ) as resp:
+                        if resp.status != 200:
+                            return None
+                        html = await resp.text(encoding='utf-8')
+                        content_type = resp.headers.get('Content-Type', '')
+                        return (url, html, content_type)
+                except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                    print(f"  ⚠️ 访问失败: {url} - {e}")
+                    return None
 
-            # 去除 URL 中的锚点（#后面的部分）
-            clean_url = current_url.split('#')[0]
-            if clean_url in visited:
-                continue
-
-            try:
-                # 请求页面
-                resp = requests.get(clean_url, headers=headers, timeout=10)
-                resp.encoding = 'utf-8'
-                visited.add(clean_url)
-
-                if resp.status_code != 200:
-                    continue
-
-                html_content = resp.text
-                results.append((clean_url, html_content))
-
-                # 解析页面中的所有链接
-                content_type = resp.headers.get('Content-Type', '')
-                if 'text/html' in content_type or 'application/xhtml' in content_type:
-                    parser = 'html.parser'
-                else:
-                    # XML、RSS、Atom 等
-                    parser = 'lxml-xml'  # 需安装 lxml，或回退到 'xml' 默认解析器
-                    # 如果没有 lxml，BeautifulSoup 会回退到 Python 内置的 xml 解析器（功能有限，但不报错）
-                soup = BeautifulSoup(html_content, parser)
-
-                for a_tag in soup.find_all('a', href=True):
-                    href = a_tag['href'].strip()
-
-                    # 拼接完整 URL
-                    full_url = urljoin(clean_url, href)
-
-                    # 只保留同域名、http/https 协议的链接
-                    parsed = urlparse(full_url)
-                    if parsed.netloc != base_domain:
-                        continue  # 忽略其他网站的链接（老师要求）
-                    if parsed.scheme not in ('http', 'https'):
+        async with aiohttp.ClientSession() as session:
+            while to_visit and len(visited) < max_pages:
+                batch = []
+                while to_visit and len(batch) < concurrency * 2:
+                    url = to_visit.pop(0)
+                    batch.append(url)
+                if not batch:
+                    break
+                tasks = [fetch(session, url) for url in batch]
+                responses = await asyncio.gather(*tasks)
+                for resp in responses:
+                    if resp is None:
                         continue
-
-                    # 去除锚点和末尾斜杠（避免重复）
-                    canonical = parsed._replace(fragment='').geturl()
-                    if canonical.endswith('/'):
-                        canonical = canonical[:-1]
-
-                    # 避免重复和已访问
-                    if canonical not in visited and canonical not in to_visit:
-                        # 跳过文件下载链接（可选）
-                        if any(ext in canonical.lower() for ext in ['.zip', '.rar', '.7z', '.exe', '.msi']):
-                            continue
-                        to_visit.add(canonical)
-
-            except Exception as e:
-                print(f"  ⚠️ 访问失败: {clean_url} - {e}")
-                visited.add(clean_url)
-                continue
-
+                    page_url, html, content_type = resp
+                    results.append((page_url, html))
+                    # ✅ 根据 Content-Type 选择解析器
+                    if 'xml' in content_type.lower() or page_url.endswith('.xml'):
+                        # XML 类型的页面
+                        try:
+                            soup = BeautifulSoup(html, 'xml')  # 使用 Python 内置 xml 解析器
+                        except Exception:
+                            # 回退到 html.parser
+                            soup = BeautifulSoup(html, 'html.parser')
+                    elif 'html' in content_type.lower() or not content_type:
+                        # HTML 类型或未知类型
+                        soup = BeautifulSoup(html, 'html.parser')
+                    else:
+                        # 其他类型（如纯文本），跳过链接提取
+                        continue
+                    # 提取新链接
+                    try:
+                        for a_tag in soup.find_all('a', href=True):
+                            href = a_tag['href'].strip()
+                            full_url = urljoin(page_url, href)
+                            parsed = urlparse(full_url)
+                            if parsed.netloc != base_domain:
+                                continue
+                            if parsed.scheme not in ('http', 'https'):
+                                continue
+                            canonical = parsed._replace(fragment='').geturl().rstrip('/')
+                            if canonical not in visited:
+                                visited.add(canonical)
+                                if any(ext in canonical.lower() for ext in
+                                       ['.zip', '.rar', '.7z', '.exe', '.msi', '.pdf', '.docx']):
+                                    continue
+                                to_visit.append(canonical)
+                    except Exception as e:
+                        print(f"  ⚠️ 解析链接失败: {page_url} - {e}")
         print(f"  📊 爬取完成：共访问 {len(visited)} 个页面，成功获取 {len(results)} 个")
         return results
 
-    # ==================== HTML 结果展示 ====================
+    # ==================== HTML 结果展示（保持原样） ====================
     @staticmethod
     def _build_html_result(results: list) -> str:
         import html as html_mod
@@ -214,7 +200,7 @@ class WebCheckerModule(BaseChecker):
 
         html_str += "</tbody></table>"
 
-        # 弹窗 CSS 和 JS
+        # 弹窗 CSS 和 JS（原样）
         html_str += """
         <style>
             .my-modal-overlay {
@@ -283,7 +269,7 @@ class WebCheckerModule(BaseChecker):
         """
         return html_str
 
-    # ==================== 纯文本报告生成 ====================
+    # ==================== 纯文本报告生成（保持原样） ====================
     @staticmethod
     def _generate_text_report(results: list, mode: str = "") -> str:
         from datetime import datetime
@@ -321,3 +307,53 @@ class WebCheckerModule(BaseChecker):
         lines.append("=" * 60)
         lines.append("报告结束")
         return "\n".join(lines)
+
+
+# ==================== 辅助工厂函数（子进程内创建独立 detector） ====================
+def _make_checker(detector_kwargs: dict):
+    """
+    返回一个可在子进程中调用的检测函数。
+    每次调用都会在子进程内重新实例化 LeakDetector（避免序列化问题）。
+    """
+    def check_single_page(item: Tuple[str, str]) -> dict:
+        page_url, html_content = item
+        # 每个子进程内独立创建 detector
+        detector = LeakDetector(
+            keywords=detector_kwargs['keywords'],
+            algorithm=detector_kwargs['algorithm'],
+            max_insert=detector_kwargs['max_insert']
+        )
+        soup = BeautifulSoup(html_content, 'html.parser')
+        for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
+            tag.decompose()
+        text = soup.get_text(separator='\n', strip=True)
+        leak_lines = detector.check_text(text)
+        return {
+            'url': page_url,
+            'leak_lines': leak_lines,
+            'note': '' if text else '无法读取页面内容'
+        }
+    return check_single_page
+
+# ==================== 模块顶层函数（必须在此位置，可被 pickle） ====================
+def _check_single_page_with_kwargs(item_with_kwargs):
+    """
+    供进程池调用的检测函数。
+    参数：(detector_kwargs, (page_url, html_content))
+    """
+    detector_kwargs, (page_url, html_content) = item_with_kwargs
+    detector = LeakDetector(
+        keywords=detector_kwargs['keywords'],
+        algorithm=detector_kwargs['algorithm'],
+        max_insert=detector_kwargs['max_insert']
+    )
+    soup = BeautifulSoup(html_content, 'html.parser')
+    for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
+        tag.decompose()
+    text = soup.get_text(separator='\n', strip=True)
+    leak_lines = detector.check_text(text)
+    return {
+        'url': page_url,
+        'leak_lines': leak_lines,
+        'note': '' if text else '无法读取页面内容'
+    }
