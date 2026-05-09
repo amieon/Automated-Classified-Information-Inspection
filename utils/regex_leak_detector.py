@@ -9,10 +9,14 @@ class RegexLeakDetector:
     每个关键词的每个字之间允许插入最多 max_insert 个任意字符。
     """
 
-    def __init__(self, keywords: Optional[List[str]] = None, max_insert: int = 3):
-        self.keywords = keywords or KEYWORDS
+    def __init__(self, keywords=None, max_insert=3):
+        self.keywords = keywords or []
         self.max_insert = max_insert
-        # 预编译合并正则（只在初始化时执行一次）
+        # 构建模糊正则：在关键词字符间允许插入最多 max_insert 个任意字符
+        self.patterns = []
+        for kw in self.keywords:
+            fuzzy = ".{0," + str(max_insert) + "}".join(re.escape(c) for c in kw)
+            self.patterns.append((kw, re.compile(fuzzy)))
         self._fuzzy_regex = self._build_combined_fuzzy_regex()
 
     def _build_combined_fuzzy_regex(self) -> re.Pattern:

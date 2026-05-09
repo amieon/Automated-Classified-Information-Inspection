@@ -243,8 +243,16 @@ class DBCheckerModule(BaseChecker):
                 password: str = Form(""),
                 database: str = Form(""),
                 dbname: str = Form(""),
+
+                algorithm: str = Form("regex"),
+                keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+                max_insert: int = Form(3)
         ):
-            detector = LeakDetector()
+            detector = LeakDetector(
+                keywords=keywords,
+                algorithm=algorithm,
+                max_insert=max_insert
+            )
 
             # 连接数据库
             connector = DBConnector(

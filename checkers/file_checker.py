@@ -312,8 +312,17 @@ class FileCheckerModule(BaseChecker):
     def register_routes(self, app: FastAPI):
         # ------ 方式1：输入路径 ------
         @app.post("/check/file/path", response_class=HTMLResponse)
-        async def check_file_path(path: str = Form(...)):
-            detector = LeakDetector()
+        async def check_file_path(
+            path: str = Form(...),
+            algorithm: str = Form("regex"),
+            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+            max_insert: int = Form(3)
+        ):
+            detector = LeakDetector(
+                keywords=keywords,
+                algorithm=algorithm,
+                max_insert=max_insert
+            )
             p = Path(path)
             if not p.exists():
                 return HTMLResponse(content="<div class='alert alert-danger'>路径不存在</div>")

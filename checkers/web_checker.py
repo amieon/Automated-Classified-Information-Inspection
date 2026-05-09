@@ -14,8 +14,17 @@ from utils.leak_detector import LeakDetector
 class WebCheckerModule(BaseChecker):
     def register_routes(self, app: FastAPI):
         @app.post("/check/web/url", response_class=HTMLResponse)
-        async def check_web_url(url: str = Form(...)):
-            detector = LeakDetector()
+        async def check_web_url(
+            url: str = Form(...),
+            algorithm: str = Form("regex"),
+            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+            max_insert: int = Form(3)
+        ):
+            detector = LeakDetector(
+                keywords=keywords,
+                algorithm=algorithm,
+                max_insert=max_insert
+            )
 
             # ---------- 1. 爬取网站所有页面 ----------
             all_pages = self._crawl_website(url)
