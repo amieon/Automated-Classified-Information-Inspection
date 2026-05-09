@@ -171,7 +171,7 @@ class AudioCheckerModule(BaseChecker):
                 process_func=self._process_audio_bytes,
                 items=valid_tasks,
                 max_workers=2,   # 音频识别较重，不要开太高
-                executor_type="thread",
+                executor_type="process",
                 collect_results=True
             )
             # 按原始索引排序

@@ -170,7 +170,7 @@ class ImageCheckerModule(BaseChecker):
                         process_func=_process_image_path,
                         items=tasks,
                         max_workers=4,
-                        executor_type="thread",   # OCR大量I/O，线程池更合适
+                        executor_type="process",
                         description="扫描图片文件中"
                     )
                     # 按路径排序（可选）
@@ -238,7 +238,7 @@ class ImageCheckerModule(BaseChecker):
                 process_func=_process_image_bytes,
                 items=image_tasks,
                 max_workers=4,
-                executor_type="thread",
+                executor_type="process",
                 description="扫描上传图片中"
             )
             for r in image_results:
