@@ -1,4 +1,5 @@
 from .regex_leak_detector import RegexLeakDetector  # 确保在同一包下
+from .AC_leak_detector import ACLeakDetector
 from checkers.keywords import KEYWORDS
 
 
@@ -11,7 +12,10 @@ class LeakDetector:
         """
         self.keywords = keywords or KEYWORDS
         self.mode = mode
-        self.detector = RegexLeakDetector(keywords=self.keywords)
+        if mode == 'fuzzy':
+            self.detector = RegexLeakDetector(keywords=self.keywords)
+        else:
+            self.detector = ACLeakDetector(keywords=self.keywords)
 
     def check_text(self, text: str) -> list:
         """
@@ -19,6 +23,6 @@ class LeakDetector:
         内部调用 RegexLeakDetector.detect()
         """
         lines = text.split('\n')
-        results = self.detector.detect(lines, mode=self.mode)
+        results = self.detector.detect(lines)
         # 转换为原有格式
         return [(r["line"], r["keyword"], r["content"]) for r in results]
