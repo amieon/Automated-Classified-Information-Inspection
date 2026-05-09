@@ -2,11 +2,12 @@
 import os
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 
 from utils.hidden_and_encrypted_checker import is_hidden_file, check_encryption
+from utils.parallel import run_parallel
 from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
 import zipfile
@@ -256,13 +257,13 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
                 ole.close()
 
                 if 'WordDocument' in all_streams:
-                    print("  🔄 根据流检测为 doc")
+                    #print("  🔄 根据流检测为 doc")
                     return parse_doc(data)
                 elif 'Workbook' in all_streams or 'Book' in all_streams:
-                    print("  🔄 根据流检测为 xls")
+                    #print("  🔄 根据流检测为 xls")
                     return parse_xls(data)
                 elif 'PowerPoint Document' in all_streams:
-                    print("  🔄 根据流检测为 ppt")
+                    #print("  🔄 根据流检测为 ppt")
                     return parse_ppt(data)
             except ImportError:
                 print("  ⚠️ 需要安装 olefile: pip install olefile")
@@ -305,7 +306,35 @@ def read_text_from_file(file_path: str) -> str:
         return ""
 
 
+def process_single_file(file_path: str, detector_params: dict) -> Optional[dict]:
+    """
+    处理单个文件：读取、检测、获取属性。
+    detector_params 包含初始化 LeakDetector 所需的参数。
+    """
+    detector = LeakDetector(**detector_params)  # 每个 worker 独立实例
 
+    text = read_text_from_file(file_path)
+    leak_lines = detector.check_text(text) if text else []
+
+    is_hid = is_hidden_file(file_path)
+    enc_info = check_encryption(file_path)
+    note_parts = []
+    if not text:
+        note_parts.append('无法读取文本内容')
+    if is_hid:
+        note_parts.append('隐藏文件')
+    if enc_info['is_encrypted']:
+        note_parts.append('加密' if not enc_info.get('is_pseudo') else '伪加密')
+
+    return {
+        'path': str(file_path),
+        'leak_lines': leak_lines,
+        'file_type': guess_file_type(file_path),
+        'note': '，'.join(note_parts),
+        'is_encrypted': enc_info['is_encrypted'],
+        'is_hidden': is_hid,
+        'is_pseudo': enc_info.get('is_pseudo', False),
+    }
 
 # ==================== FastAPI 路由注册 ====================
 class FileCheckerModule(BaseChecker):
@@ -352,36 +381,24 @@ class FileCheckerModule(BaseChecker):
                 })
             elif p.is_dir():
                 # 路径路由中
+                file_list = []
                 for root, dirs, files in os.walk(p):
                     for file in files:
-                        fp = Path(root) / file
-                        text = read_text_from_file(str(fp))
-                        leak_lines = detector.check_text(text) if text else []
-
-                        # ★ 新增：隐藏和加密检测
-                        is_hid = is_hidden_file(str(fp))
-                        enc_info = check_encryption(str(fp))
-                        note_parts = []
-                        if not text:
-                            note_parts.append('无法读取文本内容')
-                        if is_hid:
-                            note_parts.append('隐藏文件')
-                        if enc_info['is_encrypted']:
-                            if enc_info.get('is_pseudo'):
-                                note_parts.append('伪加密')
-                            else:
-                                note_parts.append('加密')
-                        note = '，'.join(note_parts)
-
-                        results.append({
-                            'path': str(fp),
-                            'leak_lines': leak_lines,
-                            'file_type': guess_file_type(str(fp)),
-                            'note': note,
-                            'is_encrypted': enc_info['is_encrypted'],
-                            'is_hidden': is_hid,
-                            'is_pseudo': enc_info.get('is_pseudo', False),
-                        })
+                        file_list.append(str(Path(root) / file))
+                # 准备检测器参数（不必每个线程重建，但为了线程安全最好每次创建新实例）
+                detector_kwargs = {
+                    "keywords": keywords,
+                    "algorithm": algorithm,
+                    "max_insert": max_insert,
+                }
+                # 使用通用并行执行器
+                results = run_parallel(
+                    process_func=lambda fp: process_single_file(fp, detector_kwargs),
+                    items=file_list,
+                    max_workers=4,  # 根据机器调优
+                    executor_type="thread",  # 文件读取是 I/O 密集型，线程安全
+                    description="检查文件中"
+                )
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
 
@@ -391,8 +408,17 @@ class FileCheckerModule(BaseChecker):
         import os
 
         @app.post("/check/file/upload", response_class=HTMLResponse)
-        async def check_file_upload(files: List[UploadFile] = File(...)):
-            detector = LeakDetector()
+        async def check_file_upload(
+            files: List[UploadFile] = Form(...),
+            algorithm: str = Form("regex"),
+            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+            max_insert: int = Form(3)
+        ):
+            detector = LeakDetector(
+                keywords=keywords,
+                algorithm=algorithm,
+                max_insert=max_insert
+            )
             results = []
             for file in files:
                 content = await file.read()

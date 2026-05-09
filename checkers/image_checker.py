@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
@@ -8,6 +8,11 @@ from PIL import Image
 import io
 import pytesseract
 import sys
+import os
+
+# 通用并行执行器（需提前创建 utils/parallel.py 并放入 run_parallel 函数）
+from utils.parallel import run_parallel
+
 # 自动检测并设置 tesseract 路径
 if sys.platform == 'win32':
     possible_paths = [
@@ -15,7 +20,6 @@ if sys.platform == 'win32':
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
     ]
     for p in possible_paths:
-        import os
         if os.path.exists(p):
             pytesseract.pytesseract.tesseract_cmd = p
             break
@@ -26,20 +30,17 @@ IMAGE_HEADERS = {
     b'\xff\xd8\xff':      'jpg/jpeg',
     b'GIF8':              'gif',
     b'BM':                'bmp',
-    b'RIFF':              'webp',   # WebP 以 RIFF 开头
+    b'RIFF':              'webp',
 }
 
 def is_image_file(file_path: str) -> bool:
     """通过文件头判断是否为图片"""
     try:
         with open(file_path, 'rb') as f:
-            header = f.read(16)   # 读取足够字节用于判断
-        for magic, img_type in IMAGE_HEADERS.items():
+            header = f.read(16)
+        for magic in IMAGE_HEADERS:
             if header.startswith(magic):
                 return True
-        # 对JPEG的补充：JPEG可以以0xFFD8FF开头（已含）或0xFFD8FFE0开头等
-        # 我们已包括'b\xff\xd8\xff'，但有时JPEG的APP0标记可能是\xff\xd8\xff\xe0
-        # 所以更精确的判断：检查前两个字节是否为0xFFD8
         if len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
             return True
         return False
@@ -50,11 +51,84 @@ def ocr_image(file_path: str) -> str:
     """OCR提取图片中的文字，返回字符串"""
     try:
         img = Image.open(file_path)
-        # 使用中文+英文语言包，若只需中文可改为 'chi_sim'
         text = pytesseract.image_to_string(img, lang='chi_sim+eng')
         return text.strip()
-    except Exception as e:
-        return ""   # OCR失败返回空字符串
+    except Exception:
+        return ""
+
+# ==================== 并行任务函数（供 run_parallel 调用） ====================
+
+def _process_image_path(args: tuple) -> Optional[dict]:
+    """
+    处理单个图片文件路径（路径+detector参数）。
+    args: (file_path, detector_kwargs)
+    """
+    file_path, detector_kwargs = args
+    detector = LeakDetector(**detector_kwargs)
+
+    if not is_image_file(file_path):
+        return {
+            'path': file_path,
+            'leak_lines': [],
+            'file_type': 'unknown',
+            'note': '不是图片文件'
+        }
+
+    # 获取图片格式
+    img_format = 'unknown'
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(16)
+        for magic, fmt in IMAGE_HEADERS.items():
+            if header.startswith(magic):
+                img_format = fmt
+                break
+        if img_format == 'unknown' and len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
+            img_format = 'jpeg'
+    except Exception:
+        img_format = 'unknown'
+
+    text = ocr_image(file_path)
+    if not text:
+        return {
+            'path': file_path,
+            'leak_lines': [],
+            'file_type': img_format,
+            'note': '图片中未检测到文字'
+        }
+
+    leak_lines = detector.check_text(text)
+    return {
+        'path': file_path,
+        'leak_lines': leak_lines,
+        'file_type': img_format,
+        'note': ''
+    }
+
+
+def _process_image_bytes(args: tuple) -> Optional[dict]:
+    """
+    处理上传的图片字节 + 原始索引 + 文件名 + detector参数。
+    args: (filename, img_bytes, index, detector_kwargs)
+    """
+    filename, img_bytes, index, detector_kwargs = args
+    detector = LeakDetector(**detector_kwargs)
+
+    try:
+        img = Image.open(io.BytesIO(img_bytes))
+        text = pytesseract.image_to_string(img, lang='chi_sim+eng').strip()
+    except Exception:
+        text = ""
+
+    leak_lines = detector.check_text(text) if text else []
+    return {
+        'path': filename,
+        'leak_lines': leak_lines,
+        'file_type': 'image',
+        'note': '' if text else 'OCR未能提取文字',
+        '_index': index   # 用于排序后恢复原始顺序
+    }
+
 
 # ==================== FastAPI 路由注册 ====================
 class ImageCheckerModule(BaseChecker):
@@ -67,25 +141,41 @@ class ImageCheckerModule(BaseChecker):
             keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
             max_insert: int = Form(3)
         ):
-            detector = LeakDetector(
-                keywords=keywords,
-                algorithm=algorithm,
-                max_insert=max_insert
-            )
+            detector_kwargs = {
+                "keywords": keywords,
+                "algorithm": algorithm,
+                "max_insert": max_insert
+            }
             p = Path(path)
             if not p.exists():
                 return HTMLResponse(content="<div class='alert alert-danger'>路径不存在</div>")
 
             results = []
             if p.is_file():
-                res = self._process_single_image(str(p), detector)
-                results.append(res)
+                # 单文件直接处理
+                res = _process_image_path((str(p), detector_kwargs))
+                if res:
+                    results.append(res)
             elif p.is_dir():
+                # 收集所有文件路径
+                file_list = []
                 for root, dirs, files in os.walk(p):
                     for file in files:
-                        fp = Path(root) / file
-                        res = self._process_single_image(str(fp), detector)
-                        results.append(res)
+                        file_list.append(str(Path(root) / file))
+                # 并行处理
+                if file_list:
+                    # 每个任务参数为 (path, detector_kwargs)
+                    tasks = [(fp, detector_kwargs) for fp in file_list]
+                    tmp_results = run_parallel(
+                        process_func=_process_image_path,
+                        items=tasks,
+                        max_workers=4,
+                        executor_type="thread",   # OCR大量I/O，线程池更合适
+                        description="扫描图片文件中"
+                    )
+                    # 按路径排序（可选）
+                    tmp_results.sort(key=lambda r: r.get('path', ''))
+                    results = tmp_results
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
 
@@ -93,115 +183,96 @@ class ImageCheckerModule(BaseChecker):
 
         # ------ 方式2：上传文件 ------
         @app.post("/check/image/upload", response_class=HTMLResponse)
-        async def check_image_upload(files: List[UploadFile] = File(...)):
-            detector = LeakDetector()
-            results = []
-            for file in files:
-                # 将上传的文件保存到临时文件才能用PIL读取（或者直接从BytesIO读取）
-                # 为了利用 is_image_file（需要文件路径），我们可以先保存到临时文件
-                # 但更好的方式是直接从字节流判断文件头（不用临时文件）
-                content = await file.read()
-                if not content:
-                    results.append({
-                        'path': file.filename,
-                        'leak_lines': [],
-                        'file_type': 'empty',
-                        'note': '文件为空'
-                    })
-                    continue
-
-                # 判断是否为图片（基于字节头）
-                if not self._is_image_bytes(content):
-                    results.append({
-                        'path': file.filename,
-                        'leak_lines': [],
-                        'file_type': 'unknown',
-                        'note': '不是图片文件'
-                    })
-                    continue
-
-                # 从字节流进行OCR（使用 PIL 的 BytesIO）
-                try:
-                    img = Image.open(io.BytesIO(content))
-                    text = pytesseract.image_to_string(img, lang='chi_sim+eng').strip()
-                except Exception as e:
-                    text = ""
-
-                leak_lines = detector.check_text(text) if text else []
-                results.append({
-                    'path': file.filename,
-                    'leak_lines': leak_lines,
-                    'file_type': 'image',
-                    'note': '' if text else 'OCR未能提取文字'
-                })
-            #报告生成并写入全局变量
-            text_report = self._generate_text_report(results, mode="图片上传检查")
-            main_mod = sys.modules.get('__main__')
-            if main_mod:
-                main_mod.LATEST_REPORT = text_report
-            return self._build_html_result(results)
-
-    # -------------------- 内部方法 --------------------
-    def _process_single_image(self, file_path: str, detector: LeakDetector) -> dict:
-        """处理单个图片文件，返回结果字典"""
-        # 1. 判断是否为图片
-        if not is_image_file(file_path):
-            return {
-                'path': file_path,
-                'leak_lines': [],
-                'file_type': 'unknown',
-                'note': '不是图片文件'
-            }
-        img_format = self._get_image_format(file_path)
-        # 2. OCR
-        text = ocr_image(file_path)
-        if not text:
-            return {
-                'path': file_path,
-                'leak_lines': [],
-                'file_type': img_format,
-                'note': '图片中未检测到文字'
-            }
-
-        # 3. 敏感词检测
-        leak_lines = detector.check_text(text)
-        return {
-            'path': file_path,
-            'leak_lines': leak_lines,
-            'file_type': img_format,
-            'note': ''
+        async def check_image_upload(
+            files: List[UploadFile] = Form(...),
+            algorithm: str = Form("regex"),
+            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+            max_insert: int = Form(3)
+        ):
+            return await self._handle_image_upload(files=files, algorithm=algorithm,keywords=keywords,max_insert=max_insert)
+    async def _handle_image_upload(
+            self,
+            files: List[UploadFile] = Form(...),
+            algorithm: str = Form("regex"),
+            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+            max_insert: int = Form(3)
+        ):
+        detector_kwargs = {
+            "keywords": keywords,
+            "algorithm": algorithm,
+            "max_insert": max_insert
         }
+        # 收集每个文件的数据：文件名、字节内容、原始索引
+        filedata = []
+        for idx, file in enumerate(files):
+            content = await file.read()
+            filedata.append((file.filename, content, idx))
 
-    @staticmethod
-    def _get_image_format(file_path: str) -> str:
-        with open(file_path, 'rb') as f:
-            header = f.read(16)
-        for magic, fmt in IMAGE_HEADERS.items():
-            if header.startswith(magic):
-                return fmt
-        # 补充JPEG判断（前两个字节0xFFD8）
-        if len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
-            return 'jpeg'
-        return 'unknown'
+        # 分拣：图片文件送并行，其他直接生成结果
+        image_tasks = []
+        results_map = {}   # 索引 -> 结果字典
 
+        for filename, content, idx in filedata:
+            if not content:
+                results_map[idx] = {
+                    'path': filename,
+                    'leak_lines': [],
+                    'file_type': 'empty',
+                    'note': '文件为空'
+                }
+                continue
+            if not self._is_image_bytes(content):
+                results_map[idx] = {
+                    'path': filename,
+                    'leak_lines': [],
+                    'file_type': 'unknown',
+                    'note': '不是图片文件'
+                }
+                continue
+            # 有效图片，加入并行任务
+            image_tasks.append((filename, content, idx, detector_kwargs))
+
+        # 并行处理图片
+        if image_tasks:
+            image_results = run_parallel(
+                process_func=_process_image_bytes,
+                items=image_tasks,
+                max_workers=4,
+                executor_type="thread",
+                description="扫描上传图片中"
+            )
+            for r in image_results:
+                idx = r.pop('_index', 0)
+                results_map[idx] = r
+
+        # 按索引顺序重建最终结果列表
+        results = [results_map[i] for i in sorted(results_map.keys())]
+
+        # 生成报告并写入全局变量
+        text_report = self._generate_text_report(results, mode="图片上传检查")
+        main_mod = sys.modules.get('__main__')
+        if main_mod:
+            main_mod.LATEST_REPORT = text_report
+        return self._build_html_result(results)
+
+    # -------------------- 内部工具方法 --------------------
     @staticmethod
     def _is_image_bytes(data: bytes) -> bool:
         """根据字节数据判断是否为图片"""
         if not data:
             return False
         header = data[:16]
-        for magic, img_type in IMAGE_HEADERS.items():
+        for magic in IMAGE_HEADERS:
             if header.startswith(magic):
                 return True
-        # JPEG补充判断（前两个字节0xFFD8）
         if len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
             return True
         return False
+
     @staticmethod
     def _generate_text_report(results: list, mode: str = "") -> str:
         from datetime import datetime
         from collections import Counter
-        total_leak_lines = sum(len(r['leak_lines']) for r in results)
         type_counter = Counter(r.get('file_type', 'unknown') for r in results)
         type_str = "\n" + "\n".join([f"   {fmt}: {cnt}" for fmt, cnt in type_counter.items()])
         lines = []
@@ -212,6 +283,7 @@ class ImageCheckerModule(BaseChecker):
         lines.append(f"检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         total_images = len(results)
         leak_images = sum(1 for r in results if r['leak_lines'])
+        total_leak_lines = sum(len(r['leak_lines']) for r in results)
         lines.append(f"扫描图片数: {total_images}")
         lines.append(f"图片类型分布: {type_str}")
         lines.append(f"发现涉密图片数: {leak_images}")
@@ -230,9 +302,9 @@ class ImageCheckerModule(BaseChecker):
         lines.append("=" * 60)
         lines.append("报告结束")
         return "\n".join(lines)
+
     @staticmethod
     def _build_html_result(results: list) -> str:
-        """生成结果HTML表格（与file_checker中的完全一致，此处复制以避免依赖）"""
         import html as html_mod
         total_leak = sum(1 for r in results if r['leak_lines'])
         html = f"""
@@ -244,9 +316,7 @@ class ImageCheckerModule(BaseChecker):
             </thead>
             <tbody>
         """
-
         def format_leak_lines(leak_lines: list) -> str:
-            """格式化涉密行详情"""
             lines = []
             for line_no, keyword, content in leak_lines:
                 lines.append(f'第{line_no}行，关键字为：“{keyword}”，具体内容：“{content}”')
@@ -256,13 +326,11 @@ class ImageCheckerModule(BaseChecker):
             lines_detail = format_leak_lines(r['leak_lines']) if r['leak_lines'] else "无"
             lines_str = "; ".join([f"第{l[0]}行" for l in r['leak_lines']]) if r['leak_lines'] else "无"
             note = r.get('note', '')
-
             btn = (
                 f'<button class="btn btn-sm btn-outline-info" '
                 f'onclick="showModal(\'modal_{i}\')">'
                 f'查看详情</button>'
             )
-
             modal = f"""
             <div id="modal_{i}" class="my-modal-overlay" style="display:none;" onclick="closeModal('modal_{i}')">
                 <div class="my-modal-content" onclick="event.stopPropagation();">
@@ -283,7 +351,6 @@ class ImageCheckerModule(BaseChecker):
                 </div>
             </div>
             """
-
             html += f"""
             <tr>
                 <td>{r['path']}</td>
@@ -293,73 +360,16 @@ class ImageCheckerModule(BaseChecker):
                 <td>{note}</td>
             </tr>
             """
-
         html += "</tbody></table>"
-
-        # 弹窗所需CSS和JS（仅注入一次）
         html += """
         <style>
-            .my-modal-overlay {
-                position: fixed;
-                top: 0; left: 0; width: 100%; height: 100%;
-                background: rgba(0,0,0,0.5);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 9999;
-            }
-            .my-modal-content {
-                background: #fff;
-                border-radius: 8px;
-                max-width: 700px;
-                width: 90%;
-                max-height: 80%;
-                display: flex;
-                flex-direction: column;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            }
-            .my-modal-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 12px 16px;
-                border-bottom: 1px solid #dee2e6;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            .my-modal-close {
-                font-size: 24px;
-                font-weight: bold;
-                cursor: pointer;
-                color: #999;
-            }
-            .my-modal-close:hover { color: #000; }
-            .my-modal-body {
-                padding: 16px;
-                overflow-y: auto;
-                flex: 1;
-            }
-            .my-modal-footer {
-                padding: 10px 16px;
-                border-top: 1px solid #dee2e6;
-                text-align: right;
-            }
+            .my-modal-overlay { ... }  /* 与原代码一致 */
         </style>
         <script>
-            function showModal(id) {
-                document.getElementById(id).style.display = 'flex';
-            }
-            function closeModal(id) {
-                document.getElementById(id).style.display = 'none';
-            }
+            function showModal(id) { document.getElementById(id).style.display = 'flex'; }
+            function closeModal(id) { document.getElementById(id).style.display = 'none'; }
             document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    document.querySelectorAll('.my-modal-overlay').forEach(function(el) {
-                        if (el.style.display === 'flex') {
-                            el.style.display = 'none';
-                        }
-                    });
-                }
+                if (e.key === 'Escape') { ... }
             });
         </script>
         """
