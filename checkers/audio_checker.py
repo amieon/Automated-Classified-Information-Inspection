@@ -78,14 +78,44 @@ def is_audio_bytes(data: bytes) -> bool:
     return False
 
 # ==================== 语音识别（使用全局模型） ====================
+import threading
+from opencc import OpenCC
+
+_CC = None
+_cc_lock = threading.Lock()
+
+
+def get_opencc():
+    global _CC
+    if _CC is None:
+        with _cc_lock:
+            if _CC is None:
+                try:
+                    _CC = OpenCC('t2s')
+                except ImportError:
+                    return None
+    return _CC
+
+
 def asr_audio(file_path: str) -> str:
     model = get_whisper_model()
     if model is None:
         print("⚠️ 未安装 openai-whisper，无法进行语音识别。")
         return ""
     try:
-        result = model.transcribe(file_path, language="zh")
-        return result["text"].strip()
+        result = model.transcribe(
+            file_path,
+            language="zh",
+            initial_prompt="以下是简体中文普通话的转录结果。请使用简体中文输出。"
+        )
+        text = result["text"].strip()
+
+        # 兜底：如果仍有繁体，用 opencc 转换
+        cc = get_opencc()
+        if cc:
+            text = cc.convert(text)
+
+        return text
     except Exception as e:
         print(f"⚠️ 语音识别失败: {e}")
         return ""

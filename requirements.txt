@@ -27,3 +27,4 @@ py7zr
 rarfile
 pyahocorasick
 regex
+opencc-python-reimplemented
