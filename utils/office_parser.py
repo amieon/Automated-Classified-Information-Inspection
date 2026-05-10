@@ -277,7 +277,7 @@ def parse_doc(content: bytes) -> str:
         ole.close()
 
         result = '\n'.join(text_parts) if text_parts else ''
-        print(f"  ✅ 成功提取 doc 文本，共 {len(result)} 字符")
+        #print(f"  ✅ 成功提取 doc 文本，共 {len(result)} 字符")
         return result
 
     except ImportError:

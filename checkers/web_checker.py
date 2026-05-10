@@ -9,7 +9,8 @@ from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
-from utils.parallel import run_parallel          # 你的多进程并行工具
+from utils.parallel import run_parallel
+from utils.cache_manager import get_cache
 
 
 class WebCheckerModule(BaseChecker):
@@ -22,22 +23,49 @@ class WebCheckerModule(BaseChecker):
             max_insert: int = Form(3)
         ):
             detector_kwargs = dict(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+            # ---------- 0. 初始化缓存并配置当前检测指纹 ----------
+            cache = get_cache()
+            cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
             # ---------- 1. 异步爬取 ----------
             all_pages = await self._crawl_website_async(url)
-            # ---------- 2. 多进程涉密检测 ----------
-            # ✅ 修复：把 detector_kwargs 和页面数据打包，传给模块级函数
-            items_with_kwargs = [(detector_kwargs, item) for item in all_pages]
-            results = await asyncio.to_thread(
-                run_parallel,
-                process_func=_check_single_page_with_kwargs,  # ← 模块顶层函数
-                items=items_with_kwargs,
-                max_workers=4,
-                executor_type="process",
-                collect_results=True
-            )
-            # ---------- 3 & 4 不变 ----------
-            html = self._build_html_result(results)
-            text_report = self._generate_text_report(results, mode="网页爬取检查")
+            # ---------- 2. 缓存过滤：先返回已缓存的页面，收集未命中项 ----------
+            cached_results = []        # 缓存命中的结果（字典列表）
+            pending_items = []         # (url, html) 待检测项
+            for page_url, html in all_pages:
+                cached = cache.get_web(html)     # 基于内容+配置的指纹查询
+                if cached is not None:
+                    # 缓存命中，复用之前的检测结果，但 url 可能不同（内容相同的不同页面）
+                    # 我们以当前 url 为准
+                    result = {
+                        'url': page_url,
+                        'leak_lines': cached.get('leak_lines', []),
+                        'note': cached.get('note', '')
+                    }
+                    cached_results.append(result)
+                else:
+                    pending_items.append((page_url, html))
+            # ---------- 3. 多进程检测未命中页面 ----------
+            detected_results = []
+            if pending_items:
+                # 打包配置和页面数据
+                items_with_kwargs = [(detector_kwargs, item) for item in pending_items]
+                detected_results = await asyncio.to_thread(
+                    run_parallel,
+                    process_func=_check_single_page_with_kwargs,
+                    items=items_with_kwargs,
+                    max_workers=4,
+                    executor_type="process",
+                    collect_results=True
+                )
+                # ---------- 4. 新检测结果写入缓存 ----------
+                for (page_url, html), result in zip(pending_items, detected_results):
+                    # result 已经包含 url、leak_lines、note
+                    cache.set_web(html, result)
+            # ---------- 5. 合并所有结果 ----------
+            all_results = cached_results + detected_results
+            # ---------- 6. 构建报告（同原逻辑） ----------
+            html = self._build_html_result(all_results)
+            text_report = self._generate_text_report(all_results, mode="网页爬取检查")
             main_mod = sys.modules.get('__main__')
             if main_mod:
                 main_mod.LATEST_REPORT = text_report

@@ -1,11 +1,14 @@
 # checkers/file_checker.py
+import hashlib
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 
+from utils.cache_manager import get_cache
 from utils.hidden_and_encrypted_checker import is_hidden_file, check_encryption
 from utils.parallel import run_parallel
 from .base_checker import BaseChecker
@@ -306,30 +309,60 @@ def read_text_from_file(file_path: str) -> str:
         return ""
 
 
-def process_single_file(file_path: str, detector_params: dict) -> Optional[dict]:
+def process_single_file(
+    file_path: str,
+    keywords: str,
+    algorithm: str,
+    max_insert: int,
+    cache=None,          # 缓存实例
+    config_raw: str = "" # 检测配置指纹字符串
+) -> Optional[dict]:
     """
     处理单个文件：读取、检测、获取属性。
-    detector_params 包含初始化 LeakDetector 所需的参数。
+    若提供缓存，则优先从缓存加载 leak_lines 和 file_type，跳过文本检测。
     """
-    detector = LeakDetector(**detector_params)  # 每个 worker 独立实例
-
-    text = read_text_from_file(file_path)
-    leak_lines = detector.check_text(text) if text else []
-
+    # 1. 读取文件全部二进制内容
+    try:
+        with open(file_path, 'rb') as f:
+            content = f.read()
+    except Exception:
+        content = b''
+    # 2. 计算缓存 key 并尝试命中
+    cached_result = None
+    if cache and config_raw and content:
+        fp = hashlib.md5(content + config_raw.encode()).hexdigest()
+        key = f"file:{fp}"
+        cached_result = cache.cache.get(key)
+    # 3. 从缓存获取核心检测结果，或者执行实际检测
+    if cached_result is not None:
+        leak_lines = cached_result.get('leak_lines', [])
+        file_type = cached_result.get('file_type', guess_file_type(content))
+    else:
+        # 执行正式检测
+        detector = LeakDetector(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+        text = read_text_from_bytes(content, os.path.basename(file_path))
+        leak_lines = detector.check_text(text) if text else []
+        file_type = guess_file_type(content)
+        # 写入缓存（仅保存与内容相关的字段）
+        if cache and config_raw and content:
+            cache.cache.set(key, {
+                'leak_lines': leak_lines,
+                'file_type': file_type
+            }, expire=cache.ttl_map["file"])
+    # 4. 检查文件系统属性（这些不能缓存，每次都重新检测）
     is_hid = is_hidden_file(file_path)
     enc_info = check_encryption(file_path)
     note_parts = []
-    if not text:
-        note_parts.append('无法读取文本内容')
+    if not content:
+        note_parts.append('无法读取文件')
     if is_hid:
         note_parts.append('隐藏文件')
     if enc_info['is_encrypted']:
         note_parts.append('加密' if not enc_info.get('is_pseudo') else '伪加密')
-
     return {
         'path': str(file_path),
         'leak_lines': leak_lines,
-        'file_type': guess_file_type(file_path),
+        'file_type': file_type,
         'note': '，'.join(note_parts),
         'is_encrypted': enc_info['is_encrypted'],
         'is_hidden': is_hid,
@@ -347,122 +380,112 @@ class FileCheckerModule(BaseChecker):
             keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
             max_insert: int = Form(3)
         ):
-            detector = LeakDetector(
-                keywords=keywords,
-                algorithm=algorithm,
-                max_insert=max_insert
-            )
+            cache = get_cache()
+            # 构建本次请求的配置指纹（不污染全局状态）
+            config_raw = f"{keywords}||{algorithm}||{max_insert}"
             p = Path(path)
             if not p.exists():
                 return HTMLResponse(content="<div class='alert alert-danger'>路径不存在</div>")
-
             results = []
             if p.is_file():
-                text = read_text_from_file(str(p))
-                leak_lines = detector.check_text(text) if text else []
-                is_hid = is_hidden_file(str(p))
-                enc_info = check_encryption(str(p))
-                note_parts = []
-                if not text:
-                    note_parts.append('无法读取文本内容')
-                if is_hid:
-                    note_parts.append('隐藏文件')
-                if enc_info['is_encrypted']:
-                    note_parts.append('加密' if not enc_info.get('is_pseudo') else '伪加密')
-                note = '，'.join(note_parts)
-                results.append({
-                    'path': str(p),
-                    'leak_lines': leak_lines,
-                    'file_type': guess_file_type(str(p)),
-                    'note': note,
-                    'is_encrypted': enc_info['is_encrypted'],
-                    'is_hidden': is_hid,
-                    'is_pseudo': enc_info.get('is_pseudo', False),
-                })
+                # 单文件直接调用（带缓存）
+                result = process_single_file(
+                    str(p), keywords, algorithm, max_insert,
+                    cache=cache, config_raw=config_raw
+                )
+                if result:
+                    results.append(result)
             elif p.is_dir():
-                # 路径路由中
+                # 收集所有文件路径
                 file_list = []
                 for root, dirs, files in os.walk(p):
                     for file in files:
                         file_list.append(str(Path(root) / file))
-                # 准备检测器参数（不必每个线程重建，但为了线程安全最好每次创建新实例）
-                detector_kwargs = {
-                    "keywords": keywords,
-                    "algorithm": algorithm,
-                    "max_insert": max_insert,
-                }
-                # 使用通用并行执行器
+                # 并行检测，每个 worker 独立使用缓存
                 results = run_parallel(
-                    process_func=lambda fp: process_single_file(fp, detector_kwargs),
+                    process_func=lambda fp: process_single_file(
+                        fp, keywords, algorithm, max_insert,
+                        cache=cache, config_raw=config_raw
+                    ),
                     items=file_list,
-                    max_workers=4,  # 根据机器调优
-                    executor_type="thread",  # 文件读取是 I/O 密集型，线程安全
+                    max_workers=4,
+                    executor_type="thread",
                     description="检查文件中"
                 )
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
-
             return self._build_html_result(results)
-
-        import tempfile
-        import os
-
+        # ------ 方式2：上传文件 ------
         @app.post("/check/file/upload", response_class=HTMLResponse)
         async def check_file_upload(
-            files: List[UploadFile] = Form(...),
-            algorithm: str = Form("regex"),
-            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
-            max_insert: int = Form(3)
+                files: List[UploadFile] = Form(...),
+                algorithm: str = Form("regex"),
+                keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+                max_insert: int = Form(3)
         ):
-            detector = LeakDetector(
-                keywords=keywords,
-                algorithm=algorithm,
-                max_insert=max_insert
-            )
+            cache = get_cache()
+            config_raw = f"{keywords}||{algorithm}||{max_insert}"
             results = []
+
             for file in files:
                 content = await file.read()
-                text = read_text_from_bytes(content, file.filename)
-                leak_lines = detector.check_text(text)
 
-                # 保存到临时文件进行加密检测
+                # 临时文件用于加密检查
                 is_encrypted = False
                 is_pseudo = False
-                is_hidden = False  # 上传的原始文件无隐藏属性
-                if content:  # 非空
-                    # 用临时文件保存上传内容
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
+                if content:
+                    suffix = os.path.splitext(file.filename)[1] if file.filename else ''
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                         tmp.write(content)
                         tmp_path = tmp.name
                     try:
                         enc_info = check_encryption(tmp_path)
                         is_encrypted = enc_info['is_encrypted']
                         is_pseudo = enc_info.get('is_pseudo', False)
-                        # 隐藏属性无法从上传判断，保留 False
                     finally:
-                        os.unlink(tmp_path)  # 删除临时文件
+                        os.unlink(tmp_path)
 
+                # 缓存检查
+                cached_result = None
+                if cache and config_raw and content:
+                    fp = hashlib.md5(content + config_raw.encode()).hexdigest()
+                    key = f"file:{fp}"
+                    cached_result = cache.cache.get(key)
+
+                if cached_result is not None:
+                    leak_lines = cached_result.get('leak_lines', [])
+                    file_type = cached_result.get('file_type', guess_file_type(content, is_bytes=True))
+                    text = read_text_from_bytes(content, file.filename)
+                else:
+                    detector = LeakDetector(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+                    text = read_text_from_bytes(content, file.filename)
+                    leak_lines = detector.check_text(text) if text else []
+                    file_type = guess_file_type(content, is_bytes=True)  # ← 修复：加上 is_bytes=True
+                    if cache and config_raw and content:
+                        cache.cache.set(key, {
+                            'leak_lines': leak_lines,
+                            'file_type': file_type
+                        }, expire=cache.ttl_map["file"])
+
+                # 备注
                 note_parts = []
-                if not text:
+                if not content:
+                    note_parts.append('空文件')
+                if not text and content:
                     note_parts.append('无法读取文本内容')
-                # 根据隐藏/加密添加备注（也可在后缀中显示）
-                note = '，'.join(note_parts)
+                if is_encrypted:
+                    note_parts.append('加密' if not is_pseudo else '伪加密')
 
-                result = {
+                results.append({
                     'path': file.filename,
                     'leak_lines': leak_lines,
-                    'file_type': guess_file_type(content, is_bytes=True),
-                    'note': note,
+                    'file_type': file_type,
+                    'note': '，'.join(note_parts),
                     'is_encrypted': is_encrypted,
-                    'is_hidden': is_hidden,
+                    'is_hidden': False,
                     'is_pseudo': is_pseudo,
-                }
-                results.append(result)
+                })
 
-            text_report = self._generate_text_report(results, source_type="上传文件")
-            main_module = sys.modules.get('__main__')
-            if main_module:
-                main_module.LATEST_REPORT = text_report
             return self._build_html_result(results)
     @staticmethod
     def _generate_text_report(results: list, source_type: str = "") -> str:

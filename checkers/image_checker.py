@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import List, Optional
 from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
+
+from utils.cache_manager import get_cache
 from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
 from PIL import Image
@@ -59,12 +61,14 @@ def ocr_image(file_path: str) -> str:
 # ==================== 并行任务函数（供 run_parallel 调用） ====================
 
 def _process_image_path(args: tuple) -> Optional[dict]:
-    """
-    处理单个图片文件路径（路径+detector参数）。
-    args: (file_path, detector_kwargs)
-    """
     file_path, detector_kwargs = args
-    detector = LeakDetector(**detector_kwargs)
+    cache = get_cache()
+    # 设置配置指纹（与主进程保持一致）
+    cache.config_fingerprint(
+        keywords=detector_kwargs.get("keywords", ""),
+        algorithm=detector_kwargs.get("algorithm", "regex"),
+        max_insert=detector_kwargs.get("max_insert", 3)
+    )
 
     if not is_image_file(file_path):
         return {
@@ -74,11 +78,31 @@ def _process_image_path(args: tuple) -> Optional[dict]:
             'note': '不是图片文件'
         }
 
-    # 获取图片格式
-    img_format = 'unknown'
+    # 读取完整字节内容用于缓存
     try:
         with open(file_path, 'rb') as f:
-            header = f.read(16)
+            content = f.read()
+    except Exception:
+        return {
+            'path': file_path,
+            'leak_lines': [],
+            'file_type': 'unknown',
+            'note': '读取文件失败'
+        }
+
+    # --- 缓存尝试 ---
+    cached = cache.get_image(content)
+    if cached is not None:
+        # 缓存命中，直接返回存储的结果（需补上 path 字段）
+        result = cached.copy()
+        result['path'] = file_path
+        return result
+    # -----------------
+
+    # 未命中，执行原本的 OCR+检测
+    img_format = 'unknown'
+    try:
+        header = content[:16]
         for magic, fmt in IMAGE_HEADERS.items():
             if header.startswith(magic):
                 img_format = fmt
@@ -88,46 +112,78 @@ def _process_image_path(args: tuple) -> Optional[dict]:
     except Exception:
         img_format = 'unknown'
 
-    text = ocr_image(file_path)
+    text = ocr_image(file_path)          # 注意：ocr_image 内部会再次打开文件，效率稍低，可优化
     if not text:
-        return {
+        result = {
             'path': file_path,
             'leak_lines': [],
             'file_type': img_format,
             'note': '图片中未检测到文字'
         }
+    else:
+        detector = LeakDetector(**detector_kwargs)
+        leak_lines = detector.check_text(text)
+        result = {
+            'path': file_path,
+            'leak_lines': leak_lines,
+            'file_type': img_format,
+            'note': ''
+        }
 
-    leak_lines = detector.check_text(text)
-    return {
-        'path': file_path,
-        'leak_lines': leak_lines,
-        'file_type': img_format,
-        'note': ''
-    }
+    # 写入缓存（不含 path，仅存可复用的检测结果）
+    cache.set_image(content, {
+        'leak_lines': result['leak_lines'],
+        'file_type': result['file_type'],
+        'note': result['note']
+    })
+    return result
 
 
 def _process_image_bytes(args: tuple) -> Optional[dict]:
-    """
-    处理上传的图片字节 + 原始索引 + 文件名 + detector参数。
-    args: (filename, img_bytes, index, detector_kwargs)
-    """
     filename, img_bytes, index, detector_kwargs = args
-    detector = LeakDetector(**detector_kwargs)
+    cache = get_cache()
+    cache.config_fingerprint(
+        keywords=detector_kwargs.get("keywords", ""),
+        algorithm=detector_kwargs.get("algorithm", "regex"),
+        max_insert=detector_kwargs.get("max_insert", 3)
+    )
 
+    # --- 缓存尝试 ---
+    cached = cache.get_image(img_bytes)
+    if cached is not None:
+        result = cached.copy()
+        result.update({
+            'path': filename,
+            '_index': index
+        })
+        return result
+    # -----------------
+
+    # 未命中，执行 OCR+检测
     try:
         img = Image.open(io.BytesIO(img_bytes))
         text = pytesseract.image_to_string(img, lang='chi_sim+eng').strip()
     except Exception:
         text = ""
 
+    detector = LeakDetector(**detector_kwargs)
     leak_lines = detector.check_text(text) if text else []
-    return {
+
+    result = {
         'path': filename,
         'leak_lines': leak_lines,
         'file_type': 'image',
         'note': '' if text else 'OCR未能提取文字',
-        '_index': index   # 用于排序后恢复原始顺序
+        '_index': index
     }
+
+    # 写入缓存（只存可复用部分）
+    cache.set_image(img_bytes, {
+        'leak_lines': leak_lines,
+        'file_type': 'image',
+        'note': '' if text else 'OCR未能提取文字'
+    })
+    return result
 
 
 # ==================== FastAPI 路由注册 ====================
@@ -146,6 +202,8 @@ class ImageCheckerModule(BaseChecker):
                 "algorithm": algorithm,
                 "max_insert": max_insert
             }
+            cache = get_cache()
+            cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
             p = Path(path)
             if not p.exists():
                 return HTMLResponse(content="<div class='alert alert-danger'>路径不存在</div>")
