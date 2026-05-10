@@ -10,6 +10,8 @@
 ## 📖 前端页面展示
 ![img.png](static/img.png)
 
+
+
 ---
 
 ## 🎯 实现功能
@@ -133,23 +135,24 @@
 ## 🧱 系统架构
 
 ```
-├── main.py                # 系统入口（FastAPI）
+├── main.py               # 系统入口（FastAPI）
 ├── checkers/             # 各类检测模块
 │   ├── web_checker.py
 │   ├── file_checker.py
 │   ├── image_checker.py
 │   ├── audio_checker.py
 │   └── db_checker.py
-├── detector/            # 关键词检查器模块
+├── detector/             # 关键词检查器模块
 │   ├── leak_detector.py
 │   ├── regex_leak_detector.py
 │   └── AC_leak_detector.py      
 ├── utils/                # 核心工具模块
 │   ├── crawler.py
+│   ├── cache_manager.py
 │   ├── hidden_and_encrypted_checker.py
 │   ├── office_parser.py
 │   ├── report_generator.py
-│   └── parallel.py       #并行执行框架（线程/进程池）
+│   └── parallel.py       # 并行执行框架（线程/进程池）
 ├── templates/            # 前端页面
 │   └── index.html
 └── static/               # 静态资源
@@ -200,6 +203,37 @@
 * 无需人工整理
 
 ---
+
+## 💾 智能检测缓存
+
+为避免重复检测相同的内容（同一个文件、同一张图片、同一段音频等），系统内置了**基于内容指纹的磁盘缓存机制**。
+
+#### ✨ 核心特性
+
+- **内容 + 配置双重指纹**
+  缓存键 = 内容 MD5 + 检测关键词/算法/模糊度，任何配置变化都会自动生成新缓存，避免误命中。
+
+- **磁盘持久化**
+  缓存数据存储在 `.detect_cache` 目录下（使用 `diskcache` 库），**重启服务后缓存依然有效**，节约大量重复检测时间。
+
+- **自动过期与容量控制**
+  - 网页缓存保留 **24 小时**，文件/图片/音频保留 **7 天**，数据库无缓存
+  - 总容量上限 **500 MB**，超出后自动采用 **LRU（最近最少使用）** 策略淘汰旧条目
+
+- **前端可视化 & 手动控制**
+  在 Web 界面顶部配置区，提供 **缓存管理面板**：
+  - 实时显示当前缓存条目数、磁盘占用大小
+  - 一键清空全部缓存（支持按类型清除，可在代码中扩展）
+
+#### 📈 效果
+
+对于重复检测任务（例如多次扫描同一个文件夹或同一批文件），命中缓存后检测速度可提升 **数十倍甚至上百倍**， OCR/ASR 计算，大幅降低系统负载。
+
+> 💡 缓存目录 `.detect_cache` 可安全删除，系统会自动重新创建，不影响正常检测。
+
+---
+
+
 
 ## ⚙️ 运行方式
 
