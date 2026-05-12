@@ -1,5 +1,4 @@
 import os
-import sys
 import tempfile
 from pathlib import Path
 from typing import List
@@ -10,6 +9,7 @@ from detector.leak_detector import LeakDetector
 from utils.parallel import run_parallel
 import threading
 from utils.cache_manager import DetectionCache
+from utils.report_exporter import publish_latest_report
 
 # ==================== 全局 Whisper 模型单例（线程安全） ====================
 _WHISPER_MODEL = None
@@ -196,6 +196,8 @@ class AudioCheckerModule(BaseChecker):
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
 
+            text_report = self._generate_text_report(results, mode="音频路径检查")
+            publish_latest_report(text_report)
             return self._build_html_result(results)
 
         # ------ 方式2：上传文件 ------
@@ -315,9 +317,7 @@ class AudioCheckerModule(BaseChecker):
 
         # 8. 生成纯文本报告 & HTML
         text_report = self._generate_text_report(final_results, mode="音频上传检查")
-        main_mod = sys.modules.get('__main__')
-        if main_mod:
-            main_mod.LATEST_REPORT = text_report
+        publish_latest_report(text_report)
 
         return HTMLResponse(content=self._build_html_result(final_results))
 

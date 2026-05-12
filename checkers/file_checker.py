@@ -1,7 +1,6 @@
 # checkers/file_checker.py
 import hashlib
 import os
-import sys
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -17,6 +16,11 @@ import zipfile
 from io import BytesIO
 from utils.office_parser import parse_xlsx, parse_docx, parse_pptx, parse_pdf
 from utils.office_parser import parse_xls, parse_doc, parse_ppt
+from utils.report_exporter import publish_latest_report
+
+
+def update_latest_report(text_report: str) -> None:
+    publish_latest_report(text_report)
 
 # ==================== 文件类型识别（基于文件头） ====================
 FILE_SIGNATURES = {
@@ -206,6 +210,14 @@ def guess_file_type(data: bytes, filename: str = '', is_bytes: bool = False) -> 
     return 'binary'
 
 
+def safe_parse(parser, content: bytes, file_type: str) -> str:
+    try:
+        return parser(content)
+    except Exception as e:
+        print(f"  [WARN] Failed to parse {file_type} file: {e}")
+        return ''
+
+
 def read_text_from_bytes(data: bytes, filename: str = '') -> str:
     """
     从字节数据中读取文本，自动检测文件类型
@@ -221,19 +233,19 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
 
                 if 'word/document.xml' in names:
                     #print(f"  📖 检测为 docx 文件")
-                    return parse_docx(data)
+                    return safe_parse(parse_docx, data, 'docx')
                 elif 'xl/workbook.xml' in names:
                     #print(f"  📖 检测为 xlsx 文件")
-                    return parse_xlsx(data)
+                    return safe_parse(parse_xlsx, data, 'xlsx')
                 elif 'ppt/presentation.xml' in names:
                     #print(f"  📖 检测为 pptx 文件")
-                    return parse_pptx(data)
+                    return safe_parse(parse_pptx, data, 'pptx')
         except Exception as e:
             print(f"  ⚠️ Office 文件解析失败: {e}")
 
     if len(data) >= 5 and data[:5] == b'%PDF-':
         #print(f"  📖 检测为 pdf 文件")
-        return parse_pdf(data)
+        return safe_parse(parse_pdf, data, 'pdf')
 
     # --- 旧格式 Office (OLE2) ---
     # OLE2 文件的魔数是前8字节: D0 CF 11 E0 A1 B1 1A E1
@@ -242,13 +254,13 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
 
         if ext == '.doc':
             #print("  🔄 使用旧版 doc 解析器")
-            return parse_doc(data)
+            return safe_parse(parse_doc, data, 'doc')
         elif ext == '.xls':
             #print("  🔄 使用旧版 xls 解析器")
-            return parse_xls(data)
+            return safe_parse(parse_xls, data, 'xls')
         elif ext == '.ppt':
             #print("  🔄 使用旧版 ppt 解析器")
-            return parse_ppt(data)
+            return safe_parse(parse_ppt, data, 'ppt')
         else:
             # 没有扩展名时，尝试自动检测
             # 通过 OLE 中的流名称判断
@@ -261,13 +273,13 @@ def read_text_from_bytes(data: bytes, filename: str = '') -> str:
 
                 if 'WordDocument' in all_streams:
                     #print("  🔄 根据流检测为 doc")
-                    return parse_doc(data)
+                    return safe_parse(parse_doc, data, 'doc')
                 elif 'Workbook' in all_streams or 'Book' in all_streams:
                     #print("  🔄 根据流检测为 xls")
-                    return parse_xls(data)
+                    return safe_parse(parse_xls, data, 'xls')
                 elif 'PowerPoint Document' in all_streams:
                     #print("  🔄 根据流检测为 ppt")
-                    return parse_ppt(data)
+                    return safe_parse(parse_ppt, data, 'ppt')
             except ImportError:
                 print("  ⚠️ 需要安装 olefile: pip install olefile")
                 return ''
@@ -336,13 +348,13 @@ def process_single_file(
     # 3. 从缓存获取核心检测结果，或者执行实际检测
     if cached_result is not None:
         leak_lines = cached_result.get('leak_lines', [])
-        file_type = cached_result.get('file_type', guess_file_type(content))
+        file_type = cached_result.get('file_type', guess_file_type(content, is_bytes=True))
     else:
         # 执行正式检测
         detector = LeakDetector(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
         text = read_text_from_bytes(content, os.path.basename(file_path))
         leak_lines = detector.check_text(text) if text else []
-        file_type = guess_file_type(content)
+        file_type = guess_file_type(content, is_bytes=True)
         # 写入缓存（仅保存与内容相关的字段）
         if cache and config_raw and content:
             cache.cache.set(key, {
@@ -414,6 +426,8 @@ class FileCheckerModule(BaseChecker):
                 )
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
+            text_report = self._generate_text_report(results, source_type="文件路径检查")
+            update_latest_report(text_report)
             return self._build_html_result(results)
         # ------ 方式2：上传文件 ------
         @app.post("/check/file/upload", response_class=HTMLResponse)
@@ -473,6 +487,8 @@ class FileCheckerModule(BaseChecker):
                     note_parts.append('空文件')
                 if not text and content:
                     note_parts.append('无法读取文本内容')
+                    if os.path.splitext(file.filename or '')[1].lower() == '.ppt':
+                        note_parts.append('legacy .ppt requires LibreOffice soffice')
                 if is_encrypted:
                     note_parts.append('加密' if not is_pseudo else '伪加密')
 
@@ -486,6 +502,8 @@ class FileCheckerModule(BaseChecker):
                     'is_pseudo': is_pseudo,
                 })
 
+            text_report = self._generate_text_report(results, source_type="文件上传检查")
+            update_latest_report(text_report)
             return self._build_html_result(results)
     @staticmethod
     def _generate_text_report(results: list, source_type: str = "") -> str:

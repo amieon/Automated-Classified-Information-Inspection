@@ -3,12 +3,16 @@ import uvicorn
 import webbrowser
 import threading
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
-from utils.cache_manager import get_cache
-
+from utils.report_exporter import (
+    DEFAULT_REPORT_FORMAT,
+    REPORT_MEDIA_TYPES,
+    build_report_exports,
+)
 LATEST_REPORT = ""
+LATEST_REPORTS = {}
 # 模块注册表 - 可通过配置文件或环境变量动态扩展
 CHECKER_MODULES = {
     "web": "checkers.web_checker.WebCheckerModule",
@@ -25,30 +29,21 @@ def create_app(modules: list = None):
     templates = Jinja2Templates(directory="templates")
 
     @app.get("/download_report")
-    async def download_report():
-        if not LATEST_REPORT:
-            from fastapi.responses import PlainTextResponse
+    async def download_report(format: str = DEFAULT_REPORT_FORMAT):
+        report_format = (format or DEFAULT_REPORT_FORMAT).lower()
+        reports = LATEST_REPORTS or build_report_exports(LATEST_REPORT)
+        if not reports.get("txt"):
             return PlainTextResponse("暂无报告", status_code=400)
-        from fastapi.responses import PlainTextResponse
-        return PlainTextResponse(LATEST_REPORT, media_type="text/plain; charset=utf-8")
+        if report_format not in REPORT_MEDIA_TYPES:
+            return PlainTextResponse("不支持的报告格式", status_code=400)
+        return Response(
+            reports[report_format],
+            media_type=REPORT_MEDIA_TYPES[report_format],
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request):
         return templates.TemplateResponse("index.html", {"request": request})
-
-
-    @app.get("/api/cache/stats")
-    async def cache_stats():
-        """返回当前缓存条目数和占用空间"""
-        cache = get_cache()
-        return cache.stats()
-
-    @app.post("/api/cache/clear")
-    async def cache_clear():
-        """清空全部磁盘缓存"""
-        cache = get_cache()
-        cache.clear()
-        return {"status": "ok", "message": "缓存已清空"}
 
     # 动态注册选中的模块路由
     if modules is None:

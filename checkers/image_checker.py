@@ -4,13 +4,19 @@ from fastapi import FastAPI, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 
 from utils.cache_manager import get_cache
+from utils.report_exporter import publish_latest_report
 from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
-from PIL import Image
+from PIL import Image, ImageOps
+import base64
 import io
 import pytesseract
 import sys
 import os
+
+PROJECT_TESSDATA = Path(__file__).resolve().parent.parent / ".tessdata"
+if (PROJECT_TESSDATA / "chi_sim.traineddata").exists():
+    os.environ["TESSDATA_PREFIX"] = str(PROJECT_TESSDATA)
 
 # 通用并行执行器（需提前创建 utils/parallel.py 并放入 run_parallel 函数）
 from utils.parallel import run_parallel
@@ -58,6 +64,29 @@ def ocr_image(file_path: str) -> str:
     except Exception:
         return ""
 
+
+def _image_preview_data_url(image_bytes: bytes, max_size=(1200, 900)) -> str:
+    """生成适合嵌入前端详情弹窗的图片预览 data URL。"""
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img = ImageOps.exif_transpose(img)
+            img.thumbnail(max_size)
+
+            if img.mode in ("RGBA", "LA"):
+                alpha = img.getchannel("A")
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                background.paste(img.convert("RGB"), mask=alpha)
+                preview = background
+            else:
+                preview = img.convert("RGB")
+
+            out = io.BytesIO()
+            preview.save(out, format="JPEG", quality=85, optimize=True)
+            encoded = base64.b64encode(out.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{encoded}"
+    except Exception:
+        return ""
+
 # ==================== 并行任务函数（供 run_parallel 调用） ====================
 
 def _process_image_path(args: tuple) -> Optional[dict]:
@@ -96,6 +125,7 @@ def _process_image_path(args: tuple) -> Optional[dict]:
         # 缓存命中，直接返回存储的结果（需补上 path 字段）
         result = cached.copy()
         result['path'] = file_path
+        result['image_preview'] = _image_preview_data_url(content)
         return result
     # -----------------
 
@@ -118,7 +148,8 @@ def _process_image_path(args: tuple) -> Optional[dict]:
             'path': file_path,
             'leak_lines': [],
             'file_type': img_format,
-            'note': '图片中未检测到文字'
+            'note': '图片中未检测到文字',
+            'image_preview': _image_preview_data_url(content)
         }
     else:
         detector = LeakDetector(**detector_kwargs)
@@ -127,7 +158,8 @@ def _process_image_path(args: tuple) -> Optional[dict]:
             'path': file_path,
             'leak_lines': leak_lines,
             'file_type': img_format,
-            'note': ''
+            'note': '',
+            'image_preview': _image_preview_data_url(content)
         }
 
     # 写入缓存（不含 path，仅存可复用的检测结果）
@@ -154,7 +186,8 @@ def _process_image_bytes(args: tuple) -> Optional[dict]:
         result = cached.copy()
         result.update({
             'path': filename,
-            '_index': index
+            '_index': index,
+            'image_preview': _image_preview_data_url(img_bytes)
         })
         return result
     # -----------------
@@ -174,7 +207,8 @@ def _process_image_bytes(args: tuple) -> Optional[dict]:
         'leak_lines': leak_lines,
         'file_type': 'image',
         'note': '' if text else 'OCR未能提取文字',
-        '_index': index
+        '_index': index,
+        'image_preview': _image_preview_data_url(img_bytes)
     }
 
     # 写入缓存（只存可复用部分）
@@ -237,6 +271,8 @@ class ImageCheckerModule(BaseChecker):
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
 
+            text_report = self._generate_text_report(results, mode="图片路径检查")
+            publish_latest_report(text_report)
             return self._build_html_result(results)
 
         # ------ 方式2：上传文件 ------
@@ -308,9 +344,7 @@ class ImageCheckerModule(BaseChecker):
 
         # 生成报告并写入全局变量
         text_report = self._generate_text_report(results, mode="图片上传检查")
-        main_mod = sys.modules.get('__main__')
-        if main_mod:
-            main_mod.LATEST_REPORT = text_report
+        publish_latest_report(text_report)
         return self._build_html_result(results)
 
     # -------------------- 内部工具方法 --------------------
@@ -384,6 +418,20 @@ class ImageCheckerModule(BaseChecker):
             lines_detail = format_leak_lines(r['leak_lines']) if r['leak_lines'] else "无"
             lines_str = "; ".join([f"第{l[0]}行" for l in r['leak_lines']]) if r['leak_lines'] else "无"
             note = r.get('note', '')
+            path_text = str(r.get('path', ''))
+            path_html = html_mod.escape(path_text)
+            lines_detail_html = html_mod.escape(lines_detail)
+            lines_str_html = html_mod.escape(lines_str)
+            note_html = html_mod.escape(str(note))
+            image_preview = r.get('image_preview', '')
+            if image_preview:
+                preview_html = (
+                    f'<img class="image-preview-large" '
+                    f'src="{html_mod.escape(image_preview, quote=True)}" '
+                    f'alt="{path_html}">'
+                )
+            else:
+                preview_html = '<div class="image-preview-empty">无法生成图片预览</div>'
             btn = (
                 f'<button class="btn btn-sm btn-outline-info" '
                 f'onclick="showModal(\'modal_{i}\')">'
@@ -393,15 +441,24 @@ class ImageCheckerModule(BaseChecker):
             <div id="modal_{i}" class="my-modal-overlay" style="display:none;" onclick="closeModal('modal_{i}')">
                 <div class="my-modal-content" onclick="event.stopPropagation();">
                     <div class="my-modal-header">
-                        <span class="my-modal-title">{html_mod.escape(r['path'])}</span>
+                        <span class="my-modal-title">{path_html}</span>
                         <span class="my-modal-close" onclick="closeModal('modal_{i}')">&times;</span>
                     </div>
                     <div class="my-modal-body">
-                        <p><strong>文件路径：</strong>{html_mod.escape(r['path'])}</p>
-                        <p><strong>文件类型：</strong>图片</p>
-                        <p><strong>涉密行数：</strong>{lines_str}</p>
-                        <hr>
-                        <pre style="white-space:pre-wrap; word-wrap:break-word; max-height:400px; overflow-y:auto;">{lines_detail}</pre>
+                        <div class="image-detail-layout">
+                            <div class="image-preview-panel">
+                                <div class="image-panel-title">图片预览</div>
+                                {preview_html}
+                            </div>
+                            <div class="image-match-panel">
+                                <p><strong>文件路径：</strong>{path_html}</p>
+                                <p><strong>文件类型：</strong>图片</p>
+                                <p><strong>涉密行数：</strong>{lines_str_html}</p>
+                                <hr>
+                                <div class="image-panel-title">命中内容</div>
+                                <pre class="image-match-content">{lines_detail_html}</pre>
+                            </div>
+                        </div>
                     </div>
                     <div class="my-modal-footer">
                         <button class="btn btn-sm btn-secondary" onclick="closeModal('modal_{i}')">关闭</button>
@@ -411,79 +468,132 @@ class ImageCheckerModule(BaseChecker):
             """
             html += f"""
             <tr>
-                <td>{r['path']}</td>
+                <td>{path_html}</td>
                 <td>图片</td>
-                <td>{lines_str}</td>
+                <td>{lines_str_html}</td>
                 <td>{btn}{modal}</td>
-                <td>{note}</td>
+                <td>{note_html}</td>
             </tr>
             """
         html += "</tbody></table>"
         html += """
-            <style>
-                .my-modal-overlay {
-                    position: fixed;
-                    top: 0; left: 0; width: 100%; height: 100%;
-                    background: rgba(0,0,0,0.5);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    z-index: 9999;
-                }
-                .my-modal-content {
-                    background: #fff;
-                    border-radius: 8px;
-                    max-width: 700px;
-                    width: 90%;
-                    max-height: 80%;
-                    display: flex;
+        <style>
+            .my-modal-overlay {
+                position: fixed;
+                top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+            }
+            .my-modal-content {
+                background: #fff;
+                border-radius: 8px;
+                max-width: 1100px;
+                width: 90%;
+                max-height: 80%;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            }
+            .my-modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 16px;
+                border-bottom: 1px solid #dee2e6;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            .my-modal-close {
+                font-size: 24px;
+                font-weight: bold;
+                cursor: pointer;
+                color: #999;
+            }
+            .my-modal-close:hover { color: #000; }
+            .my-modal-body {
+                padding: 16px;
+                overflow-y: auto;
+                flex: 1;
+            }
+            .image-detail-layout {
+                display: flex;
+                gap: 16px;
+                align-items: stretch;
+            }
+            .image-preview-panel,
+            .image-match-panel {
+                min-width: 0;
+            }
+            .image-preview-panel {
+                flex: 1.2;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                padding: 12px;
+            }
+            .image-match-panel {
+                flex: 1;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                padding: 12px;
+            }
+            .image-panel-title {
+                font-weight: 600;
+                margin-bottom: 10px;
+                color: #495057;
+            }
+            .image-preview-large {
+                display: block;
+                width: 100%;
+                max-height: 60vh;
+                object-fit: contain;
+                background: #fff;
+                border-radius: 6px;
+            }
+            .image-preview-empty {
+                color: #6c757d;
+                text-align: center;
+                padding: 48px 12px;
+            }
+            .image-match-content {
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                max-height: 52vh;
+                overflow-y: auto;
+                margin: 0;
+            }
+            .my-modal-footer {
+                padding: 10px 16px;
+                border-top: 1px solid #dee2e6;
+                text-align: right;
+            }
+            @media (max-width: 768px) {
+                .image-detail-layout {
                     flex-direction: column;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
                 }
-                .my-modal-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 12px 16px;
-                    border-bottom: 1px solid #dee2e6;
-                    font-size: 16px;
-                    font-weight: bold;
+                .image-preview-large {
+                    max-height: 45vh;
                 }
-                .my-modal-close {
-                    font-size: 24px;
-                    font-weight: bold;
-                    cursor: pointer;
-                    color: #999;
+            }
+        </style>
+        <script>
+            function showModal(id) { document.getElementById(id).style.display = 'flex'; }
+            function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    document.querySelectorAll('.my-modal-overlay').forEach(function(el) {
+                        if (el.style.display === 'flex') {
+                            el.style.display = 'none';
+                        }
+                    });
                 }
-                .my-modal-close:hover { color: #000; }
-                .my-modal-body {
-                    padding: 16px;
-                    overflow-y: auto;
-                    flex: 1;
-                }
-                .my-modal-footer {
-                    padding: 10px 16px;
-                    border-top: 1px solid #dee2e6;
-                    text-align: right;
-                }
-            </style>
-            <script>
-                function showModal(id) {
-                    document.getElementById(id).style.display = 'flex';
-                }
-                function closeModal(id) {
-                    document.getElementById(id).style.display = 'none';
-                }
-                // 按 ESC 键关闭弹窗
-                document.addEventListener('keydown', function(e) {
-                    if (e.key === 'Escape') {
-                        document.querySelectorAll('.my-modal-overlay').forEach(function(el) {
-                            if (el.style.display === 'flex') {
-                                el.style.display = 'none';
-                            }
-                        });
-                    }
-                });
-            </script>
-            """
+            });
+        </script>
+        """
         return html

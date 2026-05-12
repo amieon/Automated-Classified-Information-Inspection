@@ -1,5 +1,4 @@
 # checkers/web_checker.py
-import sys
 import asyncio
 import aiohttp
 from urllib.parse import urljoin, urlparse
@@ -11,6 +10,7 @@ from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
 from utils.parallel import run_parallel
 from utils.cache_manager import get_cache
+from utils.report_exporter import publish_latest_report
 
 
 class WebCheckerModule(BaseChecker):
@@ -66,9 +66,7 @@ class WebCheckerModule(BaseChecker):
             # ---------- 6. 构建报告（同原逻辑） ----------
             html = self._build_html_result(all_results)
             text_report = self._generate_text_report(all_results, mode="网页爬取检查")
-            main_mod = sys.modules.get('__main__')
-            if main_mod:
-                main_mod.LATEST_REPORT = text_report
+            publish_latest_report(text_report)
             return HTMLResponse(content=html)
 
 
