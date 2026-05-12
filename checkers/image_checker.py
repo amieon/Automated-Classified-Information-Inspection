@@ -420,15 +420,70 @@ class ImageCheckerModule(BaseChecker):
             """
         html += "</tbody></table>"
         html += """
-        <style>
-            .my-modal-overlay { ... }  /* 与原代码一致 */
-        </style>
-        <script>
-            function showModal(id) { document.getElementById(id).style.display = 'flex'; }
-            function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') { ... }
-            });
-        </script>
-        """
+            <style>
+                .my-modal-overlay {
+                    position: fixed;
+                    top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.5);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 9999;
+                }
+                .my-modal-content {
+                    background: #fff;
+                    border-radius: 8px;
+                    max-width: 700px;
+                    width: 90%;
+                    max-height: 80%;
+                    display: flex;
+                    flex-direction: column;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                }
+                .my-modal-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 12px 16px;
+                    border-bottom: 1px solid #dee2e6;
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+                .my-modal-close {
+                    font-size: 24px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    color: #999;
+                }
+                .my-modal-close:hover { color: #000; }
+                .my-modal-body {
+                    padding: 16px;
+                    overflow-y: auto;
+                    flex: 1;
+                }
+                .my-modal-footer {
+                    padding: 10px 16px;
+                    border-top: 1px solid #dee2e6;
+                    text-align: right;
+                }
+            </style>
+            <script>
+                function showModal(id) {
+                    document.getElementById(id).style.display = 'flex';
+                }
+                function closeModal(id) {
+                    document.getElementById(id).style.display = 'none';
+                }
+                // 按 ESC 键关闭弹窗
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        document.querySelectorAll('.my-modal-overlay').forEach(function(el) {
+                            if (el.style.display === 'flex') {
+                                el.style.display = 'none';
+                            }
+                        });
+                    }
+                });
+            </script>
+            """
         return html
