@@ -242,7 +242,8 @@ def _process_image_bytes(args: tuple) -> Optional[dict]:
     # 未命中，执行 OCR+检测
     try:
         img = Image.open(io.BytesIO(img_bytes))
-        text = pytesseract.image_to_string(img, lang=_ocr_language_arg(ocr_languages)).strip()
+
+        text = pytesseract.image_to_string(img, lang=_ocr_language_arg(ocr_languages),config='--psm 6').strip()
     except Exception:
         text = ""
 
