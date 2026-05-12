@@ -148,7 +148,7 @@
                 <p class="text-muted">支持网页爬虫检查、文件/文件夹检查、<strong>图片OCR检查</strong>、<strong>音频转文字检查</strong>（自动识别文件类型）</p>
             </div>
 
-            <!-- ========== 全局配置区：算法、关键词、模糊度 ========== -->
+<!-- ========== 全局配置区：算法、关键词、模糊度 ========== -->
             <div class="config-area row g-3 align-items-center">
                 <div class="col-md-4">
                     <label class="form-label mb-2">匹配算法</label>
@@ -168,6 +168,25 @@
                     <label for="globalMaxInsert" class="form-label">模糊程度（max_insert）</label>
                     <input type="number" class="form-control form-control-sm" id="globalMaxInsert" value="3" min="0" max="10">
                 </div>
+                <!-- 缓存管理面板 -->
+                <div class="col-auto d-flex align-items-center">
+                    <span class="fw-bold">💾 检测缓存</span>
+                </div>
+                <div class="col-auto">
+                    <span class="badge bg-info" id="cacheEntries">-</span>
+                    <span class="text-muted ms-1">条记录</span>
+                </div>
+                <div class="col-auto">
+                    <small class="text-muted">
+                        占用 <span id="cacheSizeMB">-</span> MB
+                    </small>
+                </div>
+                <div class="col-auto ms-auto">
+                    <button class="btn btn-outline-danger btn-sm" id="clearCacheBtn">
+                        🗑 清空缓存
+                    </button>
+                </div>
+
             </div>
 
             <!-- 选项卡导航 -->
@@ -666,6 +685,30 @@
                 loading.style.display = 'none';
                 setDownloadButtonsVisible(false);
             });
+        });
+
+        // 刷新缓存状态
+        async function refreshCacheStats() {
+            try {
+                const resp = await fetch('/api/cache/stats');
+                const data = await resp.json();
+                document.getElementById('cacheEntries').textContent = data.total_entries;
+                document.getElementById('cacheSizeMB').textContent = data.size_mb.toFixed(1);
+            } catch(e) {
+                console.error('获取缓存状态失败', e);
+            }
+        }
+        // 清空按钮
+        document.getElementById('clearCacheBtn').addEventListener('click', async () => {
+            if (confirm('确定要清空所有检测缓存吗？')) {
+                await fetch('/api/cache/clear', { method: 'POST' });
+                refreshCacheStats();
+            }
+        });
+        // 页面加载后立即刷新，之后每15秒自动更新
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshCacheStats();
+            setInterval(refreshCacheStats, 15000);
         });
     </script>
 </body>
