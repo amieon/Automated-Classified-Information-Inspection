@@ -14,6 +14,7 @@ import pytesseract
 import sys
 import os
 
+CHINESE_OCR_LANG = "chi_sim"
 PROJECT_TESSDATA = Path(__file__).resolve().parent.parent / ".tessdata"
 if (PROJECT_TESSDATA / "chi_sim.traineddata").exists():
     os.environ["TESSDATA_PREFIX"] = str(PROJECT_TESSDATA)
@@ -31,6 +32,58 @@ if sys.platform == 'win32':
         if os.path.exists(p):
             pytesseract.pytesseract.tesseract_cmd = p
             break
+
+def _get_ocr_languages() -> List[str]:
+    try:
+        return sorted(pytesseract.get_languages(config=""))
+    except Exception:
+        return []
+
+
+def _get_ocr_version() -> str:
+    try:
+        return str(pytesseract.get_tesseract_version())
+    except Exception as exc:
+        return f"unavailable:{type(exc).__name__}"
+
+
+def _ocr_language_arg(languages: List[str]) -> str:
+    if CHINESE_OCR_LANG in languages:
+        return f"{CHINESE_OCR_LANG}+eng" if "eng" in languages else CHINESE_OCR_LANG
+    return "eng" if "eng" in languages else CHINESE_OCR_LANG
+
+
+def _ocr_status() -> tuple[str, str, List[str]]:
+    languages = _get_ocr_languages()
+    version = _get_ocr_version()
+    tessdata_prefix = os.environ.get("TESSDATA_PREFIX", "")
+    project_chi = PROJECT_TESSDATA / "chi_sim.traineddata"
+    project_chi_mtime = ""
+    if project_chi.exists():
+        project_chi_mtime = str(int(project_chi.stat().st_mtime))
+    fingerprint = (
+        f"tesseract={pytesseract.pytesseract.tesseract_cmd}|"
+        f"version={version}|"
+        f"languages={','.join(languages)}|"
+        f"tessdata={tessdata_prefix}|"
+        f"project_chi={project_chi_mtime}"
+    )
+    if CHINESE_OCR_LANG in languages:
+        return fingerprint, "", languages
+    return (
+        fingerprint,
+        "缺少中文OCR语言包 chi_sim，中文图片可能无法准确识别",
+        languages,
+    )
+
+
+def _configure_image_cache(cache, detector_kwargs: dict, ocr_fingerprint: str) -> None:
+    keywords = detector_kwargs.get("keywords", "")
+    cache.config_fingerprint(
+        keywords=f"{keywords}||ocr:{ocr_fingerprint}",
+        algorithm=detector_kwargs.get("algorithm", "regex"),
+        max_insert=detector_kwargs.get("max_insert", 3)
+    )
 
 # ==================== 图片魔数（文件头） ====================
 IMAGE_HEADERS = {
@@ -55,11 +108,11 @@ def is_image_file(file_path: str) -> bool:
     except Exception:
         return False
 
-def ocr_image(file_path: str) -> str:
+def ocr_image(file_path: str, languages: Optional[List[str]] = None) -> str:
     """OCR提取图片中的文字，返回字符串"""
     try:
         img = Image.open(file_path)
-        text = pytesseract.image_to_string(img, lang='chi_sim+eng')
+        text = pytesseract.image_to_string(img, lang=_ocr_language_arg(languages or _get_ocr_languages()))
         return text.strip()
     except Exception:
         return ""
@@ -93,11 +146,8 @@ def _process_image_path(args: tuple) -> Optional[dict]:
     file_path, detector_kwargs = args
     cache = get_cache()
     # 设置配置指纹（与主进程保持一致）
-    cache.config_fingerprint(
-        keywords=detector_kwargs.get("keywords", ""),
-        algorithm=detector_kwargs.get("algorithm", "regex"),
-        max_insert=detector_kwargs.get("max_insert", 3)
-    )
+    ocr_fingerprint, ocr_note, ocr_languages = _ocr_status()
+    _configure_image_cache(cache, detector_kwargs, ocr_fingerprint)
 
     if not is_image_file(file_path):
         return {
@@ -142,13 +192,13 @@ def _process_image_path(args: tuple) -> Optional[dict]:
     except Exception:
         img_format = 'unknown'
 
-    text = ocr_image(file_path)          # 注意：ocr_image 内部会再次打开文件，效率稍低，可优化
+    text = ocr_image(file_path, ocr_languages)          # 注意：ocr_image 内部会再次打开文件，效率稍低，可优化
     if not text:
         result = {
             'path': file_path,
             'leak_lines': [],
             'file_type': img_format,
-            'note': '图片中未检测到文字',
+            'note': "；".join(filter(None, [ocr_note, '图片中未检测到文字'])),
             'image_preview': _image_preview_data_url(content)
         }
     else:
@@ -158,7 +208,7 @@ def _process_image_path(args: tuple) -> Optional[dict]:
             'path': file_path,
             'leak_lines': leak_lines,
             'file_type': img_format,
-            'note': '',
+            'note': ocr_note,
             'image_preview': _image_preview_data_url(content)
         }
 
@@ -174,11 +224,8 @@ def _process_image_path(args: tuple) -> Optional[dict]:
 def _process_image_bytes(args: tuple) -> Optional[dict]:
     filename, img_bytes, index, detector_kwargs = args
     cache = get_cache()
-    cache.config_fingerprint(
-        keywords=detector_kwargs.get("keywords", ""),
-        algorithm=detector_kwargs.get("algorithm", "regex"),
-        max_insert=detector_kwargs.get("max_insert", 3)
-    )
+    ocr_fingerprint, ocr_note, ocr_languages = _ocr_status()
+    _configure_image_cache(cache, detector_kwargs, ocr_fingerprint)
 
     # --- 缓存尝试 ---
     cached = cache.get_image(img_bytes)
@@ -195,7 +242,7 @@ def _process_image_bytes(args: tuple) -> Optional[dict]:
     # 未命中，执行 OCR+检测
     try:
         img = Image.open(io.BytesIO(img_bytes))
-        text = pytesseract.image_to_string(img, lang='chi_sim+eng').strip()
+        text = pytesseract.image_to_string(img, lang=_ocr_language_arg(ocr_languages)).strip()
     except Exception:
         text = ""
 
@@ -206,7 +253,7 @@ def _process_image_bytes(args: tuple) -> Optional[dict]:
         'path': filename,
         'leak_lines': leak_lines,
         'file_type': 'image',
-        'note': '' if text else 'OCR未能提取文字',
+        'note': ocr_note if text else "；".join(filter(None, [ocr_note, 'OCR未能提取文字'])),
         '_index': index,
         'image_preview': _image_preview_data_url(img_bytes)
     }
@@ -215,7 +262,7 @@ def _process_image_bytes(args: tuple) -> Optional[dict]:
     cache.set_image(img_bytes, {
         'leak_lines': leak_lines,
         'file_type': 'image',
-        'note': '' if text else 'OCR未能提取文字'
+        'note': result['note']
     })
     return result
 

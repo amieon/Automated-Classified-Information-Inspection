@@ -28,3 +28,4 @@ rarfile
 pyahocorasick
 regex
 opencc-python-reimplemented
+diskcache
