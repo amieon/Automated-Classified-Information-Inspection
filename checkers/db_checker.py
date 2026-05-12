@@ -1,4 +1,3 @@
-import sys
 from typing import List, Dict, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
@@ -6,6 +5,7 @@ from pathlib import Path
 from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
 from utils.parallel import run_parallel
+from utils.report_exporter import publish_latest_report
 
 
 # ==================== 数据库连接器（不变） ====================
@@ -325,9 +325,7 @@ class DBCheckerModule(BaseChecker):
     # ==================== 辅助方法 ====================
     @staticmethod
     def _write_report(text_report: str):
-        main_module = sys.modules.get('__main__')
-        if main_module:
-            main_module.LATEST_REPORT = text_report
+        publish_latest_report(text_report)
 
     @staticmethod
     def _generate_text_report(results: list, all_tables: list,

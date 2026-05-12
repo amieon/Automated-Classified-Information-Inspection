@@ -3,3 +3,6 @@
 
 # 忽略 detect_cache 文件夹
 .detect_cache/
+
+# 忽略本地 Tesseract 中文 OCR 语言包
+.tessdata/

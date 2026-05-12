@@ -168,28 +168,7 @@
                     <label for="globalMaxInsert" class="form-label">模糊程度（max_insert）</label>
                     <input type="number" class="form-control form-control-sm" id="globalMaxInsert" value="3" min="0" max="10">
                 </div>
-                <!-- 缓存管理面板 -->
-                <div class="col-auto d-flex align-items-center">
-                    <span class="fw-bold">💾 检测缓存</span>
-                </div>
-                <div class="col-auto">
-                    <span class="badge bg-info" id="cacheEntries">-</span>
-                    <span class="text-muted ms-1">条记录</span>
-                </div>
-                <div class="col-auto">
-                    <small class="text-muted">
-                        占用 <span id="cacheSizeMB">-</span> MB
-                    </small>
-                </div>
-                <div class="col-auto ms-auto">
-                    <button class="btn btn-outline-danger btn-sm" id="clearCacheBtn">
-                        🗑 清空缓存
-                    </button>
-                </div>
-
             </div>
-            <!-- 缓存管理面板 -->
-
 
             <!-- 选项卡导航 -->
             <ul class="nav nav-tabs justify-content-center" id="checkTabs" role="tablist">
@@ -429,7 +408,10 @@
                 <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>
                 <div class="text-center mt-3">
                     <button id="downloadReportBtn" class="btn btn-success btn-lg" style="display:none;">
-                        <i class="bi bi-download"></i> 下载报告
+                        <i class="bi bi-download"></i> 下载 MD 报告
+                    </button>
+                    <button id="downloadReportTxtBtn" class="btn btn-outline-success btn-lg ms-2" style="display:none;">
+                        <i class="bi bi-download"></i> 下载 TXT 报告
                     </button>
                 </div>
             </div>
@@ -453,6 +435,13 @@
         const resultFrame = document.getElementById('resultFrame');
         const errorPlaceholder = document.getElementById('errorPlaceholder');
         const downloadBtn = document.getElementById('downloadReportBtn');
+        const downloadTxtBtn = document.getElementById('downloadReportTxtBtn');
+
+        function setDownloadButtonsVisible(visible) {
+            const display = visible ? 'inline-block' : 'none';
+            downloadBtn.style.display = display;
+            downloadTxtBtn.style.display = display;
+        }
 
         // ==================== 通用文件选择管理 ====================
         const fileStores = {};
@@ -556,7 +545,7 @@
             loading.style.display = 'block';
             resultContainer.style.display = 'none';
             errorPlaceholder.style.display = 'none';
-            downloadBtn.style.display = 'none';
+            setDownloadButtonsVisible(false);
 
             const action = form.dataset.action;
             const method = form.dataset.method || 'POST';
@@ -617,40 +606,55 @@
                 if (bodyContent.length > 0) {
                     resultContainer.style.display = 'block';
                     errorPlaceholder.style.display = 'none';
-                    const height = iframeDoc.documentElement.scrollHeight || iframeDoc.body.scrollHeight;
-                    resultFrame.style.height = height + 'px';
-                    downloadBtn.style.display = 'inline-block';
+                    const contentHeight = iframeDoc.documentElement.scrollHeight || iframeDoc.body.scrollHeight || 300;
+                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 800;
+                    const maxFrameHeight = Math.max(420, Math.floor(viewportHeight * 0.72));
+                    const frameHeight = Math.min(contentHeight, maxFrameHeight);
+                    resultFrame.style.height = frameHeight + 'px';
+                    resultFrame.setAttribute('scrolling', contentHeight > maxFrameHeight ? 'auto' : 'no');
+                    setDownloadButtonsVisible(true);
                 } else {
                     resultContainer.style.display = 'none';
                     errorPlaceholder.style.display = 'block';
-                    downloadBtn.style.display = 'none';
+                    setDownloadButtonsVisible(false);
                 }
             } catch (e) {
                 resultContainer.style.display = 'block';
                 errorPlaceholder.style.display = 'none';
-                downloadBtn.style.display = 'inline-block';
+                setDownloadButtonsVisible(true);
             }
         });
 
         // ==================== 下载报告 ====================
-        downloadBtn.addEventListener('click', function() {
-            fetch('/download_report')
+        function downloadReport(format) {
+            const blobType = format === 'txt'
+                ? 'text/plain;charset=utf-8'
+                : 'text/markdown;charset=utf-8';
+            fetch(`/download_report?format=${encodeURIComponent(format)}`)
                 .then(response => {
                     if (!response.ok) throw new Error('下载失败');
                     return response.text();
                 })
                 .then(text => {
-                    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+                    const blob = new Blob([text], { type: blobType });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `涉密检查报告_${new Date().toISOString().slice(0,10)}.txt`;
+                    a.download = `classified_report_${new Date().toISOString().slice(0,10)}.${format}`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                 })
                 .catch(err => alert('报告下载失败：' + err.message));
+        }
+
+        downloadBtn.addEventListener('click', function() {
+            downloadReport('md');
+        });
+
+        downloadTxtBtn.addEventListener('click', function() {
+            downloadReport('txt');
         });
 
         // ==================== 选项卡切换时重置 ====================
@@ -660,31 +664,8 @@
                 resultContainer.style.display = 'none';
                 errorPlaceholder.style.display = 'none';
                 loading.style.display = 'none';
-                downloadBtn.style.display = 'none';
+                setDownloadButtonsVisible(false);
             });
-        });
-        // 刷新缓存状态
-        async function refreshCacheStats() {
-            try {
-                const resp = await fetch('/api/cache/stats');
-                const data = await resp.json();
-                document.getElementById('cacheEntries').textContent = data.total_entries;
-                document.getElementById('cacheSizeMB').textContent = data.size_mb.toFixed(1);
-            } catch(e) {
-                console.error('获取缓存状态失败', e);
-            }
-        }
-        // 清空按钮
-        document.getElementById('clearCacheBtn').addEventListener('click', async () => {
-            if (confirm('确定要清空所有检测缓存吗？')) {
-                await fetch('/api/cache/clear', { method: 'POST' });
-                refreshCacheStats();
-            }
-        });
-        // 页面加载后立即刷新，之后每15秒自动更新
-        document.addEventListener('DOMContentLoaded', () => {
-            refreshCacheStats();
-            setInterval(refreshCacheStats, 15000);
         });
     </script>
 </body>
