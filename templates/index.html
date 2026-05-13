@@ -584,7 +584,9 @@
             })
             .then(({ serverTime, html }) => {
                 resultFrame.srcdoc = html;
+                const clientTotal = ((performance.now() - checkStartTime) / 1000).toFixed(2);
                 window._lastCheckServerTime = serverTime || 'N/A';
+                window._lastCheckClientTotal = clientTotal;
                 window._lastCheckStartTime = checkStartTime;
             })
             .catch(error => {
@@ -592,6 +594,7 @@
                 errorPlaceholder.style.display = 'block';
                 errorPlaceholder.innerHTML = `<div class="alert alert-danger">请求失败：${error.message}</div>`;
                 window._lastCheckServerTime = null;
+                window._lastCheckClientTotal = null;
             });
         }
 
@@ -668,8 +671,8 @@
                     if (window._lastCheckServerTime && window._lastCheckStartTime) {
                         const totalSec = ((performance.now() - window._lastCheckStartTime) / 1000).toFixed(2);
                         const timerInfo = format === 'md'
-                            ? `\n\n---\n\n⏱️ **性能统计**\n- 服务器处理耗时：${window._lastCheckServerTime}\n- 前端总耗时（含网络/渲染）：${totalSec}s`
-                            : `\n\n========== 性能统计 ==========\n服务器处理耗时：${window._lastCheckServerTime}\n前端总耗时：${totalSec}s`;
+                            ? `\n\n---\n\n⏱️ **性能统计**\n- 服务器处理耗时：${window._lastCheckServerTime}\n- 前端总耗时（含网络/渲染）：${window._lastCheckClientTotal}s`
+                            : `\n\n========== 性能统计 ==========\n服务器处理耗时：${window._lastCheckServerTime}\n前端总耗时（含网络/渲染）：${window._lastCheckClientTotal}s`;
                         text += timerInfo;
                     }
                     const blob = new Blob([text], { type: blobType });
@@ -729,14 +732,12 @@
         });
         function updateCheckTimer() {
             const el = document.getElementById('checkTimer');
-            if (!el || !window._lastCheckServerTime) {
+            if (!el || !window._lastCheckServerTime || !window._lastCheckClientTotal) {
                 if (el) el.style.display = 'none';
                 return;
             }
-            const serverTime = window._lastCheckServerTime;
-            const totalSec = ((performance.now() - window._lastCheckStartTime) / 1000).toFixed(2);
             el.style.display = 'block';
-            el.innerHTML = `⏱️ 服务器处理耗时：<strong>${serverTime}</strong> &nbsp;|&nbsp; 前端总耗时：<strong>${totalSec}s</strong>`;
+            el.innerHTML = `⏱️ 服务器处理耗时：<strong>${window._lastCheckServerTime}</strong> &nbsp;|&nbsp; 前端请求耗时：<strong>${window._lastCheckClientTotal}s</strong>`;
         }
     </script>
 </body>
