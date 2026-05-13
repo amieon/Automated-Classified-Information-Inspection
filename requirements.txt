@@ -29,3 +29,7 @@ pyahocorasick
 regex
 opencc-python-reimplemented
 diskcache
+
+torch
+starlette
+aiohttp

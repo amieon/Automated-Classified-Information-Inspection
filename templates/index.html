@@ -424,6 +424,7 @@
 
             <!-- 结果iframe容器 + 下载按钮 -->
             <div id="resultContainer" class="result-container">
+                <div id="checkTimer" style="font-size:0.9em; color:#667eea; margin-bottom:0.5rem; display:none;"></div>
                 <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>
                 <div class="text-center mt-3">
                     <button id="downloadReportBtn" class="btn btn-success btn-lg" style="display:none;">
@@ -550,6 +551,7 @@
             });
         });
 
+
         // ==================== 统一表单提交处理（添加全局参数） ====================
         function submitForm(form, formData) {
             // 全局参数
@@ -565,9 +567,11 @@
             resultContainer.style.display = 'none';
             errorPlaceholder.style.display = 'none';
             setDownloadButtonsVisible(false);
+            document.getElementById('checkTimer').style.display = 'none';
 
             const action = form.dataset.action;
             const method = form.dataset.method || 'POST';
+            const checkStartTime = performance.now();
 
             fetch(action, {
                 method: method,
@@ -575,17 +579,22 @@
             })
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return response.text();
+                const serverTime = response.headers.get('X-Process-Time');
+                return response.text().then(html => ({ serverTime, html }));
             })
-            .then(html => {
+            .then(({ serverTime, html }) => {
                 resultFrame.srcdoc = html;
+                window._lastCheckServerTime = serverTime || 'N/A';
+                window._lastCheckStartTime = checkStartTime;
             })
             .catch(error => {
                 loading.style.display = 'none';
                 errorPlaceholder.style.display = 'block';
                 errorPlaceholder.innerHTML = `<div class="alert alert-danger">请求失败：${error.message}</div>`;
+                window._lastCheckServerTime = null;
             });
         }
+
 
         // 为所有 check-form 绑定提交事件
         document.querySelectorAll('.check-form').forEach(form => {
@@ -618,6 +627,7 @@
 
         // ==================== iframe 加载完成处理 ====================
         resultFrame.addEventListener('load', function() {
+            updateCheckTimer();
             loading.style.display = 'none';
             try {
                 const iframeDoc = resultFrame.contentDocument || resultFrame.contentWindow.document;
@@ -655,6 +665,13 @@
                     return response.text();
                 })
                 .then(text => {
+                    if (window._lastCheckServerTime && window._lastCheckStartTime) {
+                        const totalSec = ((performance.now() - window._lastCheckStartTime) / 1000).toFixed(2);
+                        const timerInfo = format === 'md'
+                            ? `\n\n---\n\n⏱️ **性能统计**\n- 服务器处理耗时：${window._lastCheckServerTime}\n- 前端总耗时（含网络/渲染）：${totalSec}s`
+                            : `\n\n========== 性能统计 ==========\n服务器处理耗时：${window._lastCheckServerTime}\n前端总耗时：${totalSec}s`;
+                        text += timerInfo;
+                    }
                     const blob = new Blob([text], { type: blobType });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -710,6 +727,17 @@
             refreshCacheStats();
             setInterval(refreshCacheStats, 15000);
         });
+        function updateCheckTimer() {
+            const el = document.getElementById('checkTimer');
+            if (!el || !window._lastCheckServerTime) {
+                if (el) el.style.display = 'none';
+                return;
+            }
+            const serverTime = window._lastCheckServerTime;
+            const totalSec = ((performance.now() - window._lastCheckStartTime) / 1000).toFixed(2);
+            el.style.display = 'block';
+            el.innerHTML = `⏱️ 服务器处理耗时：<strong>${serverTime}</strong> &nbsp;|&nbsp; 前端总耗时：<strong>${totalSec}s</strong>`;
+        }
     </script>
 </body>
 </html>

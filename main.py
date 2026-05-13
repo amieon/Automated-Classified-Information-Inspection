@@ -2,11 +2,13 @@ import argparse
 import uvicorn
 import webbrowser
 import threading
+import time
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 from utils.cache_manager import get_cache
+from utils.middleware import ProcessTimeMiddleware
 
 LATEST_REPORT = ""
 # 模块注册表 - 可通过配置文件或环境变量动态扩展
@@ -49,6 +51,9 @@ def create_app(modules: list = None):
         cache = get_cache()
         cache.clear()
         return {"status": "ok", "message": "缓存已清空"}
+
+
+    app.add_middleware(ProcessTimeMiddleware)
 
     # 动态注册选中的模块路由
     if modules is None:

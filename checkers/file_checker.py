@@ -392,6 +392,7 @@ class FileCheckerModule(BaseChecker):
             keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
             max_insert: int = Form(3)
         ):
+
             cache = get_cache()
             # 构建本次请求的配置指纹（不污染全局状态）
             config_raw = f"{keywords}||{algorithm}||{max_insert}"
