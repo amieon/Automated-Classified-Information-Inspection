@@ -4,13 +4,20 @@ import webbrowser
 import threading
 import time
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 from utils.cache_manager import get_cache
 from utils.middleware import ProcessTimeMiddleware
+from utils.report_exporter import (
+    DEFAULT_REPORT_FORMAT,
+    REPORT_MEDIA_TYPES,
+    build_report_exports,
+)
+
 
 LATEST_REPORT = ""
+LATEST_REPORTS = {}
 # 模块注册表 - 可通过配置文件或环境变量动态扩展
 CHECKER_MODULES = {
     "web": "checkers.web_checker.WebCheckerModule",
@@ -27,12 +34,17 @@ def create_app(modules: list = None):
     templates = Jinja2Templates(directory="templates")
 
     @app.get("/download_report")
-    async def download_report():
-        if not LATEST_REPORT:
-            from fastapi.responses import PlainTextResponse
+    async def download_report(format: str = DEFAULT_REPORT_FORMAT):
+        report_format = (format or DEFAULT_REPORT_FORMAT).lower()
+        reports = LATEST_REPORTS or build_report_exports(LATEST_REPORT)
+        if not reports.get("txt"):
             return PlainTextResponse("暂无报告", status_code=400)
-        from fastapi.responses import PlainTextResponse
-        return PlainTextResponse(LATEST_REPORT, media_type="text/plain; charset=utf-8")
+        if report_format not in REPORT_MEDIA_TYPES:
+            return PlainTextResponse("不支持的报告格式", status_code=400)
+        return Response(
+            reports[report_format],
+            media_type=REPORT_MEDIA_TYPES[report_format],
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request):
