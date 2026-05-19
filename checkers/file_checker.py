@@ -168,44 +168,7 @@ def guess_file_type(data: bytes, filename: str = '', is_bytes: bool = False) -> 
     # 2️⃣ 判断是否为文本内容
     if is_text_content(header):
         return 'text'
-    # （保留你已有的逻辑）
 
-    if filename:
-        ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
-        ext_map = {
-            # 原始数据
-            'txt': 'text', 'md': 'markdown', 'py': 'python', 'java': 'java',
-            'js': 'javascript', 'ts': 'typescript', 'html': 'html', 'css': 'css',
-            'json': 'json', 'xml': 'xml', 'yml': 'yaml', 'yaml': 'yaml',
-            'ini': 'ini', 'cfg': 'config', 'conf': 'config', 'csv': 'csv',
-            'log': 'log', 'doc': 'doc', 'docx': 'docx', 'xls': 'xls',
-            'xlsx': 'xlsx', 'ppt': 'ppt', 'pptx': 'pptx', 'pdf': 'pdf',
-
-            # 新增/完善部分
-            'rtf': 'text',  # 富文本，通常作为文本处理
-            'bat': 'batch',  # Windows 批处理
-            'sh': 'bash',  # Shell 脚本
-            'ps1': 'powershell',  # PowerShell 脚本
-            'sql': 'sql',  # 结构化查询语言
-            'rb': 'ruby',  # Ruby
-            'go': 'go',  # Go
-            'rs': 'rust',  # Rust
-            'cpp': 'cpp',  # C++
-            'c': 'c',  # C
-            'h': 'c',  # C 头文件 (通常复用 C 的高亮)
-            'hpp': 'cpp',  # C++ 头文件 (通常复用 C++ 的高亮)
-            'php': 'php',  # PHP
-            'pl': 'perl',  # Perl
-            'lua': 'lua',  # Lua
-            'dockerfile': 'dockerfile',  # Dockerfile
-            'gitignore': 'gitignore',  # Git Ignore
-            'env': 'properties',  # 环境变量文件 (通常类似 ini/properties)
-            'toml': 'toml',  # TOML
-            '7z': '7z',
-            'rar': 'rar',
-        }
-        if ext in ext_map:
-            return ext_map[ext]
 
     return 'binary'
 
