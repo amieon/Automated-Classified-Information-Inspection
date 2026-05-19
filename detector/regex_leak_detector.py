@@ -1,3 +1,5 @@
+import re
+
 import regex
 from typing import List, Dict, Optional, Set, Tuple
 
@@ -33,9 +35,9 @@ class RegexLeakDetector:
         }
 
         # 预编译正则缓存
-        self._pattern_cache: Dict[str, regex.Pattern] = {}
+        self._pattern_cache: Dict[str, str] = {}
 
-    def _build_pattern(self, keyword: str) -> regex.Pattern:
+    def _build_pattern(self, keyword: str) -> str:
         """
         构建单个关键词的模糊正则。
         例如 keyword="secret", max_errors=2 =>
@@ -44,28 +46,30 @@ class RegexLeakDetector:
         """
         if keyword in self._pattern_cache:
             return self._pattern_cache[keyword]
-
-        # 转义正则特殊字符
-        escaped = regex.escape(keyword)
-        # 模糊限定符：{e<=N} 表示最多 N 个错误（插入/删除/替换）
-        fuzzy_part = f"(?:{escaped}){{e<={self.max_errors}}}"
-        # 标志：忽略大小写
-        flags = regex.IGNORECASE if self.ignore_case else 0
-
-        pattern = regex.compile(f"({escaped}){{e<={self.max_errors}}}", flags)
+        # 构建模式：字符间允许任意字符（非贪婪），例如 "1.*?2.*?3.*?4"
+        pattern = r'.*?'.join(re.escape(ch) for ch in keyword)
         self._pattern_cache[keyword] = pattern
         return pattern
 
-    def _line_matches_keyword(
-        self, line: str, keyword: str
-    ) -> Optional[str]:
+    def _line_matches_keyword(self, line: str, keyword: str) -> Optional[str]:
         """
-        如果行与关键词模糊匹配，返回实际匹配到的文本片段；
-        否则返回 None。
+        返回行中与关键词模糊匹配的完整变形体，或 None。
+        使用正则获取候选子串，再通过编辑距离二次确认。
         """
-        pattern = self._build_pattern(keyword)
-        match = pattern.search(line)
-        return match.group() if match else None
+        if not keyword or not line:
+            return None
+
+        L = len(keyword)
+        max_len = L + self.max_errors
+
+        # 查找所有重叠匹配（从左到右）
+        for match in re.finditer(self._build_pattern(keyword), line, re.DOTALL):
+            sub = match.group()
+            if len(sub) <= max_len:
+                return sub
+        return None
+
+
 
     def detect(self, lines: List[str]) -> List[Dict]:
         """
