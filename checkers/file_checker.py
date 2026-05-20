@@ -42,14 +42,7 @@ FILE_SIGNATURES = {
     # 注意：docx/xlsx/pptx 会先被 'zip' 匹配（PK\x03\x04）
     # txt 没有固定魔数，由 is_text_content() 判断
 }
-TEXT_EXTENSIONS = {
-    'txt', 'md', 'py', 'java', 'js', 'ts', 'html', 'css', 'json',
-    'xml', 'yml', 'yaml', 'ini', 'cfg', 'conf', 'csv', 'log', 'rtf',
-    'bat', 'sh', 'ps1', 'sql', 'rb', 'go', 'rs', 'cpp', 'c', 'h',
-    'hpp', 'php', 'pl', 'lua', 'dockerfile', 'gitignore', 'env',
-    'toml', 'cfg', 'ini', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
-    'pdf'  # 若想把pdf也算作可读取的文本？实际pdf不能当纯文本，当然read_text_from_bytes会处理
-}
+
 # Office 文件魔数（文件头字节）
 OFFICE_MAGIC = {
     b'PK\x03\x04': ['docx', 'xlsx', 'pptx'],  # ZIP 格式
@@ -78,29 +71,6 @@ def is_text_content(data: bytes, filename: str = '') -> bool:
     """
     if not data:
         return False
-
-    # 检查 Office 文件魔数
-    if data[:4] == b'PK\x03\x04':
-        # 检查是否是 Office 文件（通过解压检查内容结构）
-        try:
-            with zipfile.ZipFile(BytesIO(data)) as z:
-                names = z.namelist()
-                # 检查是否有 Office 文件标记
-                if any(name in names for name in ['word/document.xml',
-                                                  'xl/workbook.xml',
-                                                  'ppt/presentation.xml']):
-                    return True
-                # 如果只有几个文件且不含 Office 标记，可能只是普通 ZIP
-                # 这里保守判断：包含上述标记才算 Office 文件
-        except:
-            pass
-
-    # 原有的文本检测逻辑
-    # 如果文件名有明确后缀
-    if filename:
-        ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
-        if ext in TEXT_EXTENSIONS:
-            return True
 
     # 尝试检测是否为纯文本
     try:
@@ -326,6 +296,7 @@ def process_single_file(
             }, expire=cache.ttl_map["file"])
     # 4. 检查文件系统属性（这些不能缓存，每次都重新检测）
     is_hid = is_hidden_file(file_path)
+    #print(is_hid)
     enc_info = check_encryption(file_path)
     note_parts = []
     if not content:
@@ -416,6 +387,7 @@ class FileCheckerModule(BaseChecker):
                     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                         tmp.write(content)
                         tmp_path = tmp.name
+                        #print(tmp_path)
                     try:
                         enc_info = check_encryption(tmp_path)
                         is_encrypted = enc_info['is_encrypted']
@@ -455,7 +427,6 @@ class FileCheckerModule(BaseChecker):
                         note_parts.append('legacy .ppt requires LibreOffice soffice')
                 if is_encrypted:
                     note_parts.append('加密' if not is_pseudo else '伪加密')
-
                 results.append({
                     'path': file.filename,
                     'leak_lines': leak_lines,

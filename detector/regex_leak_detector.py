@@ -38,12 +38,6 @@ class RegexLeakDetector:
         self._pattern_cache: Dict[str, str] = {}
 
     def _build_pattern(self, keyword: str) -> str:
-        """
-        构建单个关键词的模糊正则。
-        例如 keyword="secret", max_errors=2 =>
-            r'(?:secret){e<=2}'
-        忽略大小写时自动添加 (?i) 前缀。
-        """
         if keyword in self._pattern_cache:
             return self._pattern_cache[keyword]
         # 构建模式：字符间允许任意字符（非贪婪），例如 "1.*?2.*?3.*?4"
