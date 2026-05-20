@@ -50,50 +50,17 @@
             font-weight: 500;
             color: #667eea;
         }
-        .url-input, .path-input {
+        .url-input,
+        .path-input {
             border-radius: 30px;
             padding: 12px 20px;
             border: 2px solid #e0e0e0;
             transition: border-color 0.3s;
         }
-        .url-input:focus, .path-input:focus {
+        .url-input:focus,
+        .path-input:focus {
             border-color: #667eea;
             box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
-        }
-        .result-table {
-            border-radius: 15px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        }
-        .result-table th {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            font-weight: 600;
-        }
-        .highlight-badge {
-            background: #ff6b6b;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-        }
-        .footer-text {
-            color: rgba(255,255,255,0.7);
-            margin-top: 2rem;
-        }
-        .nav-tabs .nav-link {
-            color: #667eea;
-            font-weight: 600;
-            border: none;
-            padding: 10px 20px;
-        }
-        .nav-tabs .nav-link.active {
-            color: white;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 30px;
-        }
-        .tab-content {
-            margin-top: 1.5rem;
         }
         .file-upload-area {
             border: 2px dashed #667eea;
@@ -132,10 +99,25 @@
             font-weight: 600;
             color: #555;
         }
-        .config-area .form-control, .config-area .btn-group .btn {
-            font-size: 0.95rem;
+        .nav-tabs .nav-link {
+            color: #667eea;
+            font-weight: 600;
+            border: none;
+            padding: 10px 20px;
         }
-        /* 批量模式 */
+        .nav-tabs .nav-link.active {
+            color: white;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 30px;
+        }
+        .tab-content {
+            margin-top: 1.5rem;
+        }
+        .footer-text {
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 2rem;
+        }
+        /* 批量模式 & 动态行样式 */
         .batch-section {
             background: #f8f9ff;
             border-radius: 15px;
@@ -145,7 +127,7 @@
         .batch-result-card {
             margin-bottom: 1rem;
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         }
         .batch-result-card .card-header {
             background: linear-gradient(135deg, #667eea, #764ba2);
@@ -153,13 +135,39 @@
             font-weight: 600;
             cursor: pointer;
         }
-        .batch-result-card .card-body {
-            padding: 0;
-        }
         .batch-result-card iframe {
             width: 100%;
             border: none;
             min-height: 300px;
+        }
+        .url-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .url-row .form-control {
+            flex: 1;
+        }
+        .db-card {
+            border: 1px solid #dee2e6;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+        .db-card .card-header {
+            background: #eef0ff;
+            border-radius: 12px 12px 0 0 !important;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+        .scan-all-badge {
+            background: #ff6b6b;
+            color: white;
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 6px;
         }
     </style>
 </head>
@@ -195,7 +203,7 @@
                 <div class="col-md-4">
                     <label for="globalKeywords" class="form-label">关键词（逗号分隔）</label>
                     <input type="text" class="form-control form-control-sm" id="globalKeywords"
-                           value="秘密,泄密,机密,绝密,内部,涉密,保密,密级,不予公开">
+                    value="秘密,泄密,机密,绝密,内部,涉密,保密,密级,不予公开">
                 </div>
                 <div class="col-md-4">
                     <label for="globalMaxInsert" class="form-label">模糊程度（max_insert）</label>
@@ -209,18 +217,14 @@
                     <span class="text-muted ms-1">条记录</span>
                 </div>
                 <div class="col-auto">
-                    <small class="text-muted">
-                        占用 <span id="cacheSizeMB">-</span> MB
-                    </small>
+                    <small class="text-muted">占用 <span id="cacheSizeMB">-</span> MB</small>
                 </div>
                 <div class="col-auto ms-auto">
-                    <button class="btn btn-outline-danger btn-sm" id="clearCacheBtn">
-                        🗑 清空缓存
-                    </button>
+                    <button class="btn btn-outline-danger btn-sm" id="clearCacheBtn">🗑 清空缓存</button>
                 </div>
             </div>
 
-            <!-- 独立模式容器 -->
+            <!-- ==================== 独立模式容器 ==================== -->
             <div id="singleModeContainer">
                 <ul class="nav nav-tabs justify-content-center" id="checkTabs" role="tablist">
                     <li class="nav-item"><button class="nav-link active" id="web-tab" data-bs-toggle="tab" data-bs-target="#web-check" type="button">🌐 网页检查</button></li>
@@ -231,44 +235,57 @@
                 </ul>
 
                 <div class="tab-content" id="checkTabsContent">
-                    <!-- 网页检查 -->
+                    <!-- ===== 网页检查（独立模式，支持多URL） ===== -->
                     <div class="tab-pane fade show active" id="web-check">
-                        <h5 class="text-muted">🔹 输入网址</h5>
-                        <form class="check-form" data-action="/check/web/url" data-method="POST">
-                            <div class="input-group input-group-lg mb-3">
-                                <input type="text" name="url" class="form-control url-input" placeholder="例如：https://bm.yangyq.net/" required>
+                        <h5 class="text-muted">🔹 输入网址（支持多个，将依次遍历）</h5>
+                        <form class="check-form multi-url-form" data-action="/check/web/url" data-method="POST">
+                            <div id="singleUrlContainer">
+                                <div class="url-row">
+                                    <input type="text" name="url" class="form-control url-input" placeholder="例如：https://bm.yangyq.net/" required>
+                                    <button type="button" class="btn btn-outline-danger btn-sm remove-url-btn" style="display:none;" title="删除此行">✕</button>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="addUrlBtnSingle">
+                                    ＋ 添加网址
+                                </button>
+                            </div>
+                            <div class="text-center">
                                 <button type="submit" class="btn check-btn text-white px-4">开始检查</button>
                             </div>
                         </form>
                     </div>
 
-                    <!-- 文件检查 -->
+                    <!-- ===== 文件检查（独立模式） ===== -->
                     <div class="tab-pane fade" id="file-check">
                         <div class="mb-4">
                             <h5 class="text-muted">🔹 输入文件/文件夹路径</h5>
                             <form class="check-form" data-action="/check/file/path" data-method="POST">
                                 <div class="input-group input-group-lg mb-3">
-                                    <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\test" required>
+                                    <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\test" required>
                                     <button type="submit" class="btn check-btn text-white px-4">检查路径</button>
                                 </div>
                             </form>
                         </div>
                         <div>
                             <h5 class="text-muted">🔹 上传文件或文件夹</h5>
-                            <form class="upload-form" data-action="/check/file/upload" enctype="multipart/form-data" data-type="file">
+                            <form class="upload-form" data-action="/check/file/upload" data-method="POST" enctype="multipart/form-data" data-type="file">
                                 <div class="file-upload-area">
-                                    <div class="mb-2"><i class="bi bi-cloud-upload" style="font-size:2rem;color:#667eea;"></i><p class="mt-1">点击下方按钮选择文件或文件夹</p></div>
-                                    <div class="btn-group mb-3">
+                                    <div class="mb-2">
+                                        <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
+                                        <p class="mt-1">点击下方按钮选择文件或文件夹</p>
+                                    </div>
+                                    <div class="btn-group mb-3" role="group">
                                         <button type="button" class="btn btn-outline-primary active" data-mode="file" data-target="fileInput_file">选择文件</button>
                                         <button type="button" class="btn btn-outline-primary" data-mode="folder" data-target="folderInput_file">选择文件夹</button>
                                     </div>
-                                    <input type="file" id="fileInput_file" name="files" multiple style="display:none;">
-                                    <input type="file" id="folderInput_file" name="files" webkitdirectory multiple style="display:none;">
+                                    <input type="file" id="fileInput_file" name="files" class="form-control" multiple style="display: none;">
+                                    <input type="file" id="folderInput_file" name="files" class="form-control" webkitdirectory multiple style="display: none;">
                                     <div id="fileInfo_file" class="mt-2 text-start" style="display:none;">
                                         <div class="alert alert-info py-2 px-3 mb-0">
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <span><i class="bi bi-check-circle"></i> 已选择 <span id="fileCount_file">0</span> 个文件</span>
-                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFiles('file')">清除全部</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles('file')">清除全部</button>
                                             </div>
                                             <div id="fileList_file" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.9rem;"></div>
                                         </div>
@@ -281,33 +298,36 @@
                         </div>
                     </div>
 
-                    <!-- 图片检查 -->
+                    <!-- ===== 图片检查（独立模式） ===== -->
                     <div class="tab-pane fade" id="image-check">
                         <div class="mb-4">
                             <h5 class="text-muted">🔹 输入图片/文件夹路径</h5>
                             <form class="check-form" data-action="/check/image/path" data-method="POST">
                                 <div class="input-group input-group-lg mb-3">
-                                    <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\images" required>
+                                    <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\images" required>
                                     <button type="submit" class="btn check-btn text-white px-4">检查路径</button>
                                 </div>
                             </form>
                         </div>
                         <div>
                             <h5 class="text-muted">🔹 上传图片文件或包含图片的文件夹</h5>
-                            <form class="upload-form" data-action="/check/image/upload" enctype="multipart/form-data" data-type="image">
+                            <form class="upload-form" data-action="/check/image/upload" data-method="POST" enctype="multipart/form-data" data-type="image">
                                 <div class="file-upload-area">
-                                    <div class="mb-2"><i class="bi bi-cloud-upload" style="font-size:2rem;color:#667eea;"></i><p class="mt-1">点击下方按钮选择图片文件或文件夹</p></div>
-                                    <div class="btn-group mb-3">
+                                    <div class="mb-2">
+                                        <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
+                                        <p class="mt-1">点击下方按钮选择图片文件或文件夹</p>
+                                    </div>
+                                    <div class="btn-group mb-3" role="group">
                                         <button type="button" class="btn btn-outline-primary active" data-mode="file" data-target="fileInput_image">选择文件</button>
                                         <button type="button" class="btn btn-outline-primary" data-mode="folder" data-target="folderInput_image">选择文件夹</button>
                                     </div>
-                                    <input type="file" id="fileInput_image" name="files" multiple accept=".jpg,.jpeg,.png,.gif,.bmp,.tiff,.webp" style="display:none;">
-                                    <input type="file" id="folderInput_image" name="files" webkitdirectory multiple style="display:none;">
+                                    <input type="file" id="fileInput_image" name="files" class="form-control" multiple accept=".jpg,.jpeg,.png,.gif,.bmp,.tiff,.webp" style="display:none;">
+                                    <input type="file" id="folderInput_image" name="files" class="form-control" webkitdirectory multiple style="display:none;">
                                     <div id="fileInfo_image" class="mt-2 text-start" style="display:none;">
                                         <div class="alert alert-info py-2 px-3 mb-0">
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <span><i class="bi bi-check-circle"></i> 已选择 <span id="fileCount_image">0</span> 个文件</span>
-                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFiles('image')">清除全部</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles('image')">清除全部</button>
                                             </div>
                                             <div id="fileList_image" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.9rem;"></div>
                                         </div>
@@ -320,33 +340,36 @@
                         </div>
                     </div>
 
-                    <!-- 音频检查 -->
+                    <!-- ===== 音频检查（独立模式） ===== -->
                     <div class="tab-pane fade" id="audio-check">
                         <div class="mb-4">
                             <h5 class="text-muted">🔹 输入音频文件/文件夹路径</h5>
                             <form class="check-form" data-action="/check/audio/path" data-method="POST">
                                 <div class="input-group input-group-lg mb-3">
-                                    <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\audio" required>
+                                    <input type="text" name="path" class="form-control path-input" placeholder="例如：C:\Users\ASUS\Desktop\audio" required>
                                     <button type="submit" class="btn check-btn text-white px-4">检查路径</button>
                                 </div>
                             </form>
                         </div>
                         <div>
                             <h5 class="text-muted">🔹 上传音频文件或包含音频的文件夹</h5>
-                            <form class="upload-form" data-action="/check/audio/upload" enctype="multipart/form-data" data-type="audio">
+                            <form class="upload-form" data-action="/check/audio/upload" data-method="POST" enctype="multipart/form-data" data-type="audio">
                                 <div class="file-upload-area">
-                                    <div class="mb-2"><i class="bi bi-cloud-upload" style="font-size:2rem;color:#667eea;"></i><p class="mt-1">点击下方按钮选择音频文件或文件夹</p></div>
-                                    <div class="btn-group mb-3">
+                                    <div class="mb-2">
+                                        <i class="bi bi-cloud-upload" style="font-size: 2rem; color: #667eea;"></i>
+                                        <p class="mt-1">点击下方按钮选择音频文件或文件夹</p>
+                                    </div>
+                                    <div class="btn-group mb-3" role="group">
                                         <button type="button" class="btn btn-outline-primary active" data-mode="file" data-target="fileInput_audio">选择文件</button>
                                         <button type="button" class="btn btn-outline-primary" data-mode="folder" data-target="folderInput_audio">选择文件夹</button>
                                     </div>
-                                    <input type="file" id="fileInput_audio" name="files" multiple accept=".mp3,.wav,.flac,.aac,.ogg,.wma,.m4a" style="display:none;">
-                                    <input type="file" id="folderInput_audio" name="files" webkitdirectory multiple style="display:none;">
+                                    <input type="file" id="fileInput_audio" name="files" class="form-control" multiple accept=".mp3,.wav,.flac,.aac,.ogg,.wma,.m4a" style="display:none;">
+                                    <input type="file" id="folderInput_audio" name="files" class="form-control" webkitdirectory multiple style="display:none;">
                                     <div id="fileInfo_audio" class="mt-2 text-start" style="display:none;">
                                         <div class="alert alert-info py-2 px-3 mb-0">
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <span><i class="bi bi-check-circle"></i> 已选择 <span id="fileCount_audio">0</span> 个文件</span>
-                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFiles('audio')">清除全部</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFiles('audio')">清除全部</button>
                                             </div>
                                             <div id="fileList_audio" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.9rem;"></div>
                                         </div>
@@ -359,35 +382,95 @@
                         </div>
                     </div>
 
-                    <!-- 数据库检查 -->
+                    <!-- ===== 数据库检查（独立模式，支持多DB + 扫描所有库） ===== -->
                     <div class="tab-pane fade" id="db-check">
-                        <h5 class="text-muted">🔹 填写数据库连接信息</h5>
-                        <form class="check-form" data-action="/check/db/connect" data-method="POST">
-                            <div class="row g-3 mb-3">
-                                <div class="col-md-3"><label class="form-label">数据库类型</label><select name="db_type" class="form-select"><option value="mysql">MySQL</option><option value="postgresql">PostgreSQL</option><option value="sqlite">SQLite</option></select></div>
-                                <div class="col-md-3"><label class="form-label">主机地址</label><input type="text" name="host" class="form-control" value="localhost"></div>
-                                <div class="col-md-2"><label class="form-label">端口</label><input type="number" name="port" class="form-control" placeholder="3306"></div>
-                                <div class="col-md-4"><label class="form-label">数据库名</label><input type="text" name="dbname" class="form-control" required></div>
+                        <h5 class="text-muted">🔹 填写数据库连接信息（支持多个，可扫描所有库）</h5>
+                        <form class="check-form multi-db-form" data-action="/check/db/connect" data-method="POST">
+                            <div id="singleDbContainer">
+                                <!-- 数据库卡片 #1 -->
+                                <div class="db-card" data-db-index="1">
+                                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                                        <span data-bs-toggle="collapse" data-bs-target="#dbBlock1" style="cursor:pointer;">🗄️ 数据库 #1</span>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="form-check form-switch mb-0 me-2">
+                                                <input class="form-check-input scan-all-db" type="checkbox" id="scanAll1">
+                                                <label class="form-check-label small" for="scanAll1">扫描所有库</label>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-danger btn-sm remove-db-btn" onclick="event.stopPropagation();removeDbCard(this);" title="删除此数据库">✕</button>
+                                        </div>
+                                    </div>
+                                    <div class="collapse show" id="dbBlock1">
+                                        <div class="card-body">
+                                            <div class="row g-2 mb-2">
+                                                <div class="col-md-3">
+                                                    <label class="form-label small">数据库类型</label>
+                                                    <select name="db_type" class="form-select form-select-sm">
+                                                        <option value="mysql">MySQL</option>
+                                                        <option value="postgresql">PostgreSQL</option>
+                                                        <option value="sqlite">SQLite</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small">主机地址</label>
+                                                    <input type="text" name="host" class="form-control form-control-sm" value="localhost">
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">端口</label>
+                                                    <input type="number" name="port" class="form-control form-control-sm" placeholder="3306">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small">数据库名 / SQLite路径</label>
+                                                    <input type="text" name="dbname" class="form-control form-control-sm" placeholder="mydb 或 /path/to/db.sqlite">
+                                                </div>
+                                            </div>
+                                            <div class="row g-2">
+                                                <div class="col-md-4">
+                                                    <label class="form-label small">用户名</label>
+                                                    <input type="text" name="user" class="form-control form-control-sm" placeholder="root">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small">密码</label>
+                                                    <input type="password" name="password" class="form-control form-control-sm" placeholder="密码">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small">连接字符串（可选）</label>
+                                                    <input type="text" name="conn_str" class="form-control form-control-sm" placeholder="mysql+pymysql://user:pass@host:port/dbname">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="row g-3 mb-3">
-                                <div class="col-md-4"><label class="form-label">用户名</label><input type="text" name="user" class="form-control"></div>
-                                <div class="col-md-4"><label class="form-label">密码</label><input type="password" name="password" class="form-control"></div>
-                                <div class="col-md-4 d-flex align-items-end"><button type="submit" class="btn check-btn text-white px-4 w-100">开始检查</button></div>
+                            <div class="mb-3 mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="addDbBtnSingle">
+                                    ＋ 添加数据库
+                                </button>
                             </div>
-                            <div class="mb-3"><label class="form-label">连接字符串（可选）</label><input type="text" name="conn_str" class="form-control" placeholder="mysql+pymysql://user:pass@host:port/dbname"></div>
+                            <div class="text-center">
+                                <button type="submit" class="btn check-btn text-white px-4">开始检查</button>
+                            </div>
                         </form>
                     </div>
                 </div>
             </div>
 
-            <!-- 批量全检模式容器（初始隐藏） -->
+            <!-- ==================== 批量全检模式容器 ==================== -->
             <div id="batchModeContainer" style="display:none;">
+                <!-- 网页 -->
                 <div class="batch-section">
-                    <h5 class="fw-bold mb-3">🌐 网页检查</h5>
-                    <input type="text" id="batchUrl" class="form-control url-input" placeholder="输入网址（留空则跳过）">
+                    <h5 class="fw-bold mb-3">🌐 网页检查
+                        <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="addUrlBtnBatch">＋ 添加网址</button>
+                    </h5>
+                    <div id="batchUrlContainer">
+                        <div class="url-row">
+                            <input type="text" class="form-control url-input" placeholder="输入网址（留空则跳过）">
+                            <button type="button" class="btn btn-outline-danger btn-sm remove-url-btn" style="display:none;" title="删除此行">✕</button>
+                        </div>
+                    </div>
                 </div>
+                <!-- 文件/图片/音频路径 -->
                 <div class="batch-section">
-                    <h5 class="fw-bold mb-3">📁 文件/图片/音频路径检查</h5>
+                    <h5 class="fw-bold mb-3">📁 文件 / 图片 / 音频路径检查</h5>
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label">文件路径</label>
@@ -403,33 +486,82 @@
                         </div>
                     </div>
                 </div>
+                <!-- 批量文件上传 -->
                 <div class="batch-section">
                     <h5 class="fw-bold mb-3">📤 批量文件上传（自动分类）</h5>
                     <div class="file-upload-area">
-                        <p><i class="bi bi-folder-check" style="font-size:2rem;color:#667eea;"></i> 拖拽文件/文件夹到此处，或点击选择</p>
+                        <p><i class="bi bi-folder-check" style="font-size:2rem;color:#667eea;"></i> 点击选择文件或文件夹</p>
                         <input type="file" id="batchFileInput" class="form-control" multiple webkitdirectory>
                         <div id="batchFileInfo" class="mt-2 text-start" style="display:none;">
-                            <div class="alert alert-info py-2 px-3 mb-0">
+                            <div class="alert alert-info py-2 px-3 mb-0 d-flex justify-content-between align-items-center">
                                 <span>📄 文件 <span id="batchFileCount">0</span> | 🖼️ 图片 <span id="batchImageCount">0</span> | 🎵 音频 <span id="batchAudioCount">0</span></span>
-                                <button type="button" class="btn btn-sm btn-outline-secondary ms-3" onclick="clearBatchFiles()">清除</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearBatchFiles()">清除</button>
                             </div>
                         </div>
                     </div>
                 </div>
+                <!-- 数据库（支持多个 + 扫描所有库） -->
                 <div class="batch-section">
-                    <h5 class="fw-bold mb-3">🗄️ 数据库检查</h5>
-                    <div class="row g-3">
-                        <div class="col-md-3"><label class="form-label">类型</label><select id="batchDbType" class="form-select"><option value="mysql">MySQL</option><option value="postgresql">PostgreSQL</option><option value="sqlite">SQLite</option></select></div>
-                        <div class="col-md-3"><label class="form-label">主机</label><input type="text" id="batchHost" class="form-control" value="localhost"></div>
-                        <div class="col-md-2"><label class="form-label">端口</label><input type="number" id="batchPort" class="form-control" placeholder="3306"></div>
-                        <div class="col-md-4"><label class="form-label">数据库名</label><input type="text" id="batchDbname" class="form-control"></div>
-                    </div>
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-4"><label class="form-label">用户名</label><input type="text" id="batchUser" class="form-control"></div>
-                        <div class="col-md-4"><label class="form-label">密码</label><input type="password" id="batchPassword" class="form-control"></div>
-                        <div class="col-md-4"><label class="form-label">连接字符串</label><input type="text" id="batchConnStr" class="form-control"></div>
+                    <h5 class="fw-bold mb-3">🗄️ 数据库检查
+                        <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="addDbBtnBatch">＋ 添加数据库</button>
+                    </h5>
+                    <div id="batchDbContainer">
+                        <div class="db-card" data-db-index="1">
+                            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                                <span data-bs-toggle="collapse" data-bs-target="#batchDbBlock1" style="cursor:pointer;">🗄️ 数据库 #1</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check form-switch mb-0 me-2">
+                                        <input class="form-check-input scan-all-db" type="checkbox" id="batchScanAll1">
+                                        <label class="form-check-label small" for="batchScanAll1">扫描所有库</label>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-danger btn-sm remove-db-btn" onclick="event.stopPropagation();removeDbCard(this);" title="删除此数据库">✕</button>
+                                </div>
+                            </div>
+
+                            <div class="collapse show" id="batchDbBlock1">
+                                <div class="card-body">
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-md-3">
+                                            <label class="form-label small">数据库类型</label>
+                                            <select class="form-select form-select-sm db-type">
+                                                <option value="mysql">MySQL</option>
+                                                <option value="postgresql">PostgreSQL</option>
+                                                <option value="sqlite">SQLite</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label small">主机地址</label>
+                                            <input type="text" class="form-control form-control-sm db-host" value="localhost">
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label class="form-label small">端口</label>
+                                            <input type="number" class="form-control form-control-sm db-port" placeholder="3306">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">数据库名 / SQLite路径</label>
+                                            <input type="text" class="form-control form-control-sm db-name" placeholder="mydb">
+                                        </div>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label small">用户名</label>
+                                            <input type="text" class="form-control form-control-sm db-user" placeholder="root">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">密码</label>
+                                            <input type="password" class="form-control form-control-sm db-password" placeholder="密码">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">连接字符串（可选）</label>
+                                            <input type="text" class="form-control form-control-sm db-conn-str" placeholder="mysql+pymysql://user:pass@host:port/dbname">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
+                <!-- 全部检查按钮 -->
                 <div class="text-center mt-4">
                     <button id="batchRunAllBtn" class="btn check-btn text-white px-5 py-3" style="font-size:1.2rem;">⚡ 全部检查（串行）</button>
                 </div>
@@ -441,7 +573,7 @@
                 <p class="loading-text mt-2">正在检查，请稍候...</p>
             </div>
 
-            <!-- 结果容器（独立模式使用） -->
+            <!-- 独立模式结果容器 -->
             <div id="resultContainer" class="result-container">
                 <div id="checkTimer" style="font-size:0.9em; color:#667eea; margin-bottom:0.5rem; display:none;"></div>
                 <iframe id="resultFrame" name="resultFrame" style="width:100%; border:none; min-height: 300px;"></iframe>
@@ -468,7 +600,7 @@
 
     <script src="/static/bootstrap.bundle.min.js"></script>
     <script>
-        // ========== 全局变量 ==========
+        // ==================== 全局变量 ====================
         const loading = document.getElementById('loading');
         const resultContainer = document.getElementById('resultContainer');
         const resultFrame = document.getElementById('resultFrame');
@@ -476,7 +608,7 @@
         const downloadBtn = document.getElementById('downloadReportBtn');
         const downloadTxtBtn = document.getElementById('downloadReportTxtBtn');
 
-        // 模式切换
+        // ==================== 模式切换 ====================
         const modeSingleBtn = document.getElementById('modeSingle');
         const modeBatchBtn = document.getElementById('modeBatch');
         const singleContainer = document.getElementById('singleModeContainer');
@@ -490,7 +622,6 @@
             modeBatchBtn.classList.remove('active');
             singleContainer.style.display = '';
             batchContainer.style.display = 'none';
-            // 清空批量结果并显示独立模式占位
             batchResultContainer.style.display = 'none';
             resultContainer.style.display = 'none';
             errorPlaceholder.style.display = '';
@@ -505,7 +636,6 @@
             batchContainer.style.display = '';
             resultContainer.style.display = 'none';
             errorPlaceholder.style.display = 'none';
-            // 不清空批量结果，但隐藏独立模式结果
             if (document.getElementById('batchAccordion').children.length > 0) {
                 batchResultContainer.style.display = '';
             }
@@ -517,12 +647,194 @@
             downloadTxtBtn.style.display = visible ? 'inline-block' : 'none';
         }
 
-        // ========== 独立模式文件管理（保留原逻辑） ==========
-        const fileStores = {};
-        function initFileType(type) {
-            if (!fileStores[type]) {
-                fileStores[type] = [];
+        // ==================== 动态 URL 行管理（独立模式 + 批量模式共用） ====================
+        function updateUrlRemoveButtons(containerSelector) {
+            const container = document.querySelector(containerSelector);
+            const rows = container.querySelectorAll('.url-row');
+            rows.forEach((row, i) => {
+                const btn = row.querySelector('.remove-url-btn');
+                if (btn) {
+                    btn.style.display = rows.length > 1 ? 'inline-block' : 'none';
+                }
+            });
+        }
+
+        function addUrlRow(containerSelector) {
+            const container = document.querySelector(containerSelector);
+            const row = document.createElement('div');
+            row.className = 'url-row';
+            row.innerHTML = `
+                <input type="text" name="url" class="form-control url-input" placeholder="例如：https://example.com/">
+                <button type="button" class="btn btn-outline-danger btn-sm remove-url-btn" title="删除此行">✕</button>
+            `;
+            // 删除按钮事件
+            row.querySelector('.remove-url-btn').addEventListener('click', function() {
+                row.remove();
+                updateUrlRemoveButtons(containerSelector);
+            });
+            container.appendChild(row);
+            updateUrlRemoveButtons(containerSelector);
+        }
+
+        // 为已有行绑定删除事件
+        function bindUrlRemoveButtons(containerSelector) {
+            const container = document.querySelector(containerSelector);
+            container.querySelectorAll('.remove-url-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    this.closest('.url-row').remove();
+                    updateUrlRemoveButtons(containerSelector);
+                });
+            });
+            updateUrlRemoveButtons(containerSelector);
+        }
+
+        // 收集所有非空 URL
+        function collectUrls(containerSelector) {
+            const container = document.querySelector(containerSelector);
+            const inputs = container.querySelectorAll('input[name="url"]');
+            return Array.from(inputs).map(inp => inp.value.trim()).filter(v => v);
+        }
+
+        // 独立模式 + 按钮
+        document.getElementById('addUrlBtnSingle').addEventListener('click', () => addUrlRow('#singleUrlContainer'));
+        bindUrlRemoveButtons('#singleUrlContainer');
+
+        // 批量模式 + 按钮
+        document.getElementById('addUrlBtnBatch').addEventListener('click', () => addUrlRow('#batchUrlContainer'));
+        bindUrlRemoveButtons('#batchUrlContainer');
+
+        // ==================== 动态数据库卡片管理 ====================
+        let dbCardCounter = 2; // 从2开始，因为已有 #1
+
+        function updateDbRemoveButtons(containerSelector) {
+            const container = document.querySelector(containerSelector);
+            const cards = container.querySelectorAll('.db-card');
+            cards.forEach(card => {
+                const btn = card.querySelector('.remove-db-btn');
+                if (btn) {
+                    btn.style.display = cards.length > 1 ? 'inline-block' : 'none';
+                }
+                // 更新编号
+                const headerSpan = card.querySelector('.card-header span');
+                if (headerSpan) {
+                    const idx = Array.from(cards).indexOf(card) + 1;
+                    headerSpan.textContent = '🗄️ 数据库 #' + idx;
+                }
+            });
+        }
+
+        function createDbCard(containerSelector) {
+            const idx = dbCardCounter++;
+            const collapseId = (containerSelector === '#singleDbContainer' ? 'dbBlock' : 'batchDbBlock') + idx;
+            const scanAllId = (containerSelector === '#singleDbContainer' ? 'scanAll' : 'batchScanAll') + idx;
+            const card = document.createElement('div');
+            card.className = 'db-card';
+            card.setAttribute('data-db-index', idx);
+            card.innerHTML = `
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <span data-bs-toggle="collapse" data-bs-target="#${collapseId}" style="cursor:pointer;">🗄️ 数据库 #${idx}</span>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="form-check form-switch mb-0 me-2">
+                            <input class="form-check-input scan-all-db" type="checkbox" id="${scanAllId}">
+                            <label class="form-check-label small" for="${scanAllId}">扫描所有库</label>
+                        </div>
+                        <button type="button" class="btn btn-outline-danger btn-sm remove-db-btn" onclick="event.stopPropagation();removeDbCard(this);" title="删除此数据库">✕</button>
+                    </div>
+                </div>
+                <div class="collapse show" id="${collapseId}">
+                    <div class="card-body">
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-3">
+                                <label class="form-label small">数据库类型</label>
+                                <select class="form-select form-select-sm ${containerSelector === '#singleDbContainer' ? '' : 'db-type'}" name="db_type">
+                                    <option value="mysql">MySQL</option>
+                                    <option value="postgresql">PostgreSQL</option>
+                                    <option value="sqlite">SQLite</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">主机地址</label>
+                                <input type="text" class="form-control form-control-sm ${containerSelector === '#singleDbContainer' ? '' : 'db-host'}" name="host" value="localhost">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label small">端口</label>
+                                <input type="number" class="form-control form-control-sm ${containerSelector === '#singleDbContainer' ? '' : 'db-port'}" name="port" placeholder="3306">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">数据库名 / SQLite路径</label>
+                                <input type="text" class="form-control form-control-sm ${containerSelector === '#singleDbContainer' ? '' : 'db-name'}" name="dbname" placeholder="mydb">
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small">用户名</label>
+                                <input type="text" class="form-control form-control-sm ${containerSelector === '#singleDbContainer' ? '' : 'db-user'}" name="user" placeholder="root">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">密码</label>
+                                <input type="password" class="form-control form-control-sm ${containerSelector === '#singleDbContainer' ? '' : 'db-password'}" name="password" placeholder="密码">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small">连接字符串（可选）</label>
+                                <input type="text" class="form-control form-control-sm ${containerSelector === '#singleDbContainer' ? '' : 'db-conn-str'}" name="conn_str" placeholder="mysql+pymysql://user:pass@host:port/dbname">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const container = document.querySelector(containerSelector);
+            container.appendChild(card);
+
+            // ===== 扫描所有库开关逻辑 =====
+            const scanAllCheckbox = card.querySelector('.scan-all-db');
+            const dbNameInput = card.querySelector('input[name="dbname"], .db-name');
+            const collapseEl = card.querySelector('.collapse');
+
+            if (scanAllCheckbox && dbNameInput && collapseEl) {
+                const bsCollapse = new bootstrap.Collapse(collapseEl, { toggle: false });
+
+                scanAllCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        dbNameInput.style.display = 'none';
+                        dbNameInput.value = '';
+                        bsCollapse.show();
+                    } else {
+                        dbNameInput.style.display = '';
+                    }
+                });
+
+                if (scanAllCheckbox.checked) {
+                    dbNameInput.style.display = 'none';
+                    dbNameInput.value = '';
+                    bsCollapse.show();
+                }
             }
+
+            updateDbRemoveButtons(containerSelector);
+            return card;
+        }
+
+        window.removeDbCard = function(btn) {
+            const card = btn.closest('.db-card');
+            const container = card.parentElement;
+            card.remove();
+            updateDbRemoveButtons('#' + container.id);
+        };
+
+        // 独立模式 + 数据库按钮
+        document.getElementById('addDbBtnSingle').addEventListener('click', () => createDbCard('#singleDbContainer'));
+        updateDbRemoveButtons('#singleDbContainer');
+
+        // 批量模式 + 数据库按钮
+        document.getElementById('addDbBtnBatch').addEventListener('click', () => createDbCard('#batchDbContainer'));
+        updateDbRemoveButtons('#batchDbContainer');
+
+        // ==================== 独立模式文件管理（保留原逻辑） ====================
+        const fileStores = {};
+
+        function initFileType(type) {
+            if (!fileStores[type]) fileStores[type] = [];
         }
 
         function switchMode(type, mode) {
@@ -586,12 +898,341 @@
             document.getElementById(`folderInput_${type}`).value = '';
             updateFileInfo(type);
         }
-        // ...（此处为节省篇幅省略完整实现，实际代码已包含在最后完整文件中）
 
-        // ========== 批量模式文件分类 ==========
+        // 绑定所有上传模式按钮和文件输入
+        document.querySelectorAll('.btn-group .btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                const targetInputId = this.dataset.target;
+                const type = targetInputId.replace('fileInput_', '').replace('folderInput_', '');
+                const mode = this.dataset.mode;
+                switchMode(type, mode);
+            });
+        });
+
+        document.querySelectorAll('input[type="file"][id^="fileInput_"], input[type="file"][id^="folderInput_"]').forEach(input => {
+            input.addEventListener('change', function(e) {
+                const type = this.id.replace('fileInput_', '').replace('folderInput_', '');
+                onFileSelected(type, e);
+            });
+        });
+
+        // ==================== 全局配置获取 ====================
+        function getGlobalConfig() {
+            const algorithm = document.querySelector('input[name="globalAlgorithm"]:checked').value;
+            const keywords = document.getElementById('globalKeywords').value;
+            const maxInsert = document.getElementById('globalMaxInsert').value;
+            return { algorithm, keywords, max_insert: maxInsert };
+        }
+
+        function appendGlobalConfig(formData) {
+            const cfg = getGlobalConfig();
+            formData.append('algorithm', cfg.algorithm);
+            formData.append('keywords', cfg.keywords);
+            formData.append('max_insert', cfg.max_insert);
+        }
+
+        async function fetchCheck(url, formData) {
+            const resp = await fetch(url, { method: 'POST', body: formData });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return await resp.text();
+        }
+
+        // ==================== 独立模式表单提交 ====================
+        // Web 表单（多URL）
+        document.querySelector('#web-check .multi-url-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const urls = collectUrls('#singleUrlContainer');
+            if (urls.length === 0) {
+                alert('请至少输入一个网址！');
+                return;
+            }
+            // 显示加载
+            loading.style.display = 'block';
+            resultContainer.style.display = 'none';
+            errorPlaceholder.style.display = 'none';
+            setDownloadButtonsVisible(false);
+            document.getElementById('checkTimer').style.display = 'none';
+
+            const checkStartTime = performance.now();
+            let combinedHtml = '';
+            let allServerTimes = [];
+
+            for (let i = 0; i < urls.length; i++) {
+                const fd = new FormData();
+                fd.append('url', urls[i]);
+                appendGlobalConfig(fd);
+                try {
+                    const resp = await fetch(this.dataset.action, { method: 'POST', body: fd });
+                    const serverTime = resp.headers.get('X-Process-Time');
+                    if (serverTime) allServerTimes.push(serverTime);
+                    const html = await resp.text();
+                    if (urls.length > 1) {
+                        combinedHtml += `<h5 style="margin-top:1rem;">🌐 网址 ${i+1}：${urls[i]}</h5><hr>` + html;
+                    } else {
+                        combinedHtml = html;
+                    }
+                } catch (err) {
+                    combinedHtml += `<div class="alert alert-danger">网址 ${urls[i]} 检查失败：${err.message}</div>`;
+                }
+            }
+
+            const clientTotal = ((performance.now() - checkStartTime) / 1000).toFixed(2);
+            window._lastCheckServerTime = allServerTimes.join(', ') || 'N/A';
+            window._lastCheckClientTotal = clientTotal;
+            window._lastCheckStartTime = checkStartTime;
+
+            resultFrame.srcdoc = combinedHtml;
+            loading.style.display = 'none';
+            // iframe onload 会处理显示
+        });
+
+        // 其他 check-form（非多URL、非多DB）
+        document.querySelectorAll('.check-form:not(.multi-url-form):not(.multi-db-form)').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                appendGlobalConfig(formData);
+                submitFormAjax(this.dataset.action, formData);
+            });
+        });
+
+        // DB 表单（多数据库）
+        document.querySelector('#db-check .multi-db-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const dbCards = document.querySelectorAll('#singleDbContainer .db-card');
+            const dbConfigs = [];
+            dbCards.forEach(card => {
+                const scanAll = card.querySelector('.scan-all-db').checked;
+                const dbType = card.querySelector('select[name="db_type"]').value;
+                const host = card.querySelector('input[name="host"]').value.trim();
+                const port = card.querySelector('input[name="port"]').value.trim();
+                const dbname = card.querySelector('input[name="dbname"]').value.trim();
+                const user = card.querySelector('input[name="user"]').value.trim();
+                const password = card.querySelector('input[name="password"]').value;
+                const connStr = card.querySelector('input[name="conn_str"]').value.trim();
+                if (dbname || connStr || scanAll) {
+                    dbConfigs.push({ dbType, host, port, dbname, user, password, connStr, scanAll });
+                }
+            });
+
+            if (dbConfigs.length === 0) {
+                alert('请至少填写一个数据库连接信息！');
+                return;
+            }
+
+            loading.style.display = 'block';
+            resultContainer.style.display = 'none';
+            errorPlaceholder.style.display = 'none';
+            setDownloadButtonsVisible(false);
+            document.getElementById('checkTimer').style.display = 'none';
+
+            const checkStartTime = performance.now();
+            let combinedHtml = '';
+            let allServerTimes = [];
+
+            for (let i = 0; i < dbConfigs.length; i++) {
+                const cfg = dbConfigs[i];
+                const fd = new FormData();
+                fd.append('db_type', cfg.dbType);
+                fd.append('host', cfg.host);
+                if (cfg.port) fd.append('port', cfg.port);
+                fd.append('dbname', cfg.dbname);
+                fd.append('user', cfg.user);
+                fd.append('password', cfg.password);
+                if (cfg.connStr) fd.append('conn_str', cfg.connStr);
+                if (cfg.scanAll) fd.append('scan_all', 'true');
+                appendGlobalConfig(fd);
+
+                const endpoint = cfg.scanAll ? '/check/db/scan-all' : this.dataset.action;
+                const label = cfg.scanAll
+                    ? `扫描所有库 (${cfg.host}:${cfg.port || '默认端口'})`
+                    : `${cfg.dbname || cfg.connStr}`;
+
+                try {
+                    const resp = await fetch(endpoint, { method: 'POST', body: fd });
+                    const serverTime = resp.headers.get('X-Process-Time');
+                    if (serverTime) allServerTimes.push(serverTime);
+                    const html = await resp.text();
+                    if (dbConfigs.length > 1) {
+                        combinedHtml += `<h5 style="margin-top:1rem;">🗄️ 数据库 ${i+1}：${label}</h5><hr>` + html;
+                    } else {
+                        combinedHtml = html;
+                    }
+                } catch (err) {
+                    combinedHtml += `<div class="alert alert-danger">数据库 ${i+1} (${label}) 检查失败：${err.message}</div>`;
+                }
+            }
+
+            const clientTotal = ((performance.now() - checkStartTime) / 1000).toFixed(2);
+            window._lastCheckServerTime = allServerTimes.join(', ') || 'N/A';
+            window._lastCheckClientTotal = clientTotal;
+            window._lastCheckStartTime = checkStartTime;
+
+            resultFrame.srcdoc = combinedHtml;
+            loading.style.display = 'none';
+        });
+
+        function submitFormAjax(action, formData) {
+            loading.style.display = 'block';
+            resultContainer.style.display = 'none';
+            errorPlaceholder.style.display = 'none';
+            setDownloadButtonsVisible(false);
+            document.getElementById('checkTimer').style.display = 'none';
+
+            const checkStartTime = performance.now();
+
+            fetch(action, { method: 'POST', body: formData })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const serverTime = response.headers.get('X-Process-Time');
+                    return response.text().then(html => ({ serverTime, html }));
+                })
+                .then(({ serverTime, html }) => {
+                    resultFrame.srcdoc = html;
+                    const clientTotal = ((performance.now() - checkStartTime) / 1000).toFixed(2);
+                    window._lastCheckServerTime = serverTime || 'N/A';
+                    window._lastCheckClientTotal = clientTotal;
+                    window._lastCheckStartTime = checkStartTime;
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    errorPlaceholder.style.display = 'block';
+                    errorPlaceholder.innerHTML = `<div class="alert alert-danger">请求失败：${error.message}</div>`;
+                    window._lastCheckServerTime = null;
+                    window._lastCheckClientTotal = null;
+                });
+        }
+
+        // Upload 表单
+        document.querySelectorAll('.upload-form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const type = this.dataset.type || 'file';
+                const store = fileStores[type] || [];
+                if (store.length === 0) {
+                    alert('请先选择文件或文件夹！');
+                    return;
+                }
+                const formData = new FormData();
+                store.forEach(file => {
+                    const path = file.webkitRelativePath || file.name;
+                    formData.append('files', file, path);
+                });
+                appendGlobalConfig(formData);
+                submitFormAjax(this.dataset.action, formData);
+            });
+        });
+
+        // ==================== iframe 加载完成处理 ====================
+        resultFrame.addEventListener('load', function() {
+            updateCheckTimer();
+            loading.style.display = 'none';
+            try {
+                const iframeDoc = resultFrame.contentDocument || resultFrame.contentWindow.document;
+                const bodyContent = iframeDoc.body ? iframeDoc.body.innerHTML.trim() : '';
+                if (bodyContent.length > 0) {
+                    resultContainer.style.display = 'block';
+                    errorPlaceholder.style.display = 'none';
+                    const contentHeight = iframeDoc.documentElement.scrollHeight || iframeDoc.body.scrollHeight || 300;
+                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 800;
+                    const maxFrameHeight = Math.max(420, Math.floor(viewportHeight * 0.72));
+                    const frameHeight = Math.min(contentHeight, maxFrameHeight);
+                    resultFrame.style.height = frameHeight + 'px';
+                    resultFrame.setAttribute('scrolling', contentHeight > maxFrameHeight ? 'auto' : 'no');
+                    setDownloadButtonsVisible(true);
+                } else {
+                    resultContainer.style.display = 'none';
+                    errorPlaceholder.style.display = 'block';
+                    setDownloadButtonsVisible(false);
+                }
+            } catch (e) {
+                resultContainer.style.display = 'block';
+                errorPlaceholder.style.display = 'none';
+                setDownloadButtonsVisible(true);
+            }
+        });
+
+        function updateCheckTimer() {
+            const el = document.getElementById('checkTimer');
+            if (!el || !window._lastCheckServerTime || !window._lastCheckClientTotal) {
+                if (el) el.style.display = 'none';
+                return;
+            }
+            el.style.display = 'block';
+            el.innerHTML = `⏱️ 服务器处理耗时：<strong>${window._lastCheckServerTime}</strong> &nbsp;|&nbsp; 前端请求耗时：<strong>${window._lastCheckClientTotal}s</strong>`;
+        }
+
+        // ==================== 下载报告 ====================
+        function downloadReport(format) {
+            const blobType = format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8';
+            fetch(`/download_report?format=${encodeURIComponent(format)}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('下载失败');
+                    return response.text();
+                })
+                .then(text => {
+                    if (window._lastCheckServerTime && window._lastCheckStartTime) {
+                        const totalSec = ((performance.now() - window._lastCheckStartTime) / 1000).toFixed(2);
+                        const timerInfo = format === 'md'
+                            ? `\n\n---\n\n⏱️ **性能统计**\n- 服务器处理耗时：${window._lastCheckServerTime}\n- 前端总耗时（含网络/渲染）：${window._lastCheckClientTotal}s`
+                            : `\n\n========== 性能统计 ==========\n服务器处理耗时：${window._lastCheckServerTime}\n前端总耗时（含网络/渲染）：${window._lastCheckClientTotal}s`;
+                        text += timerInfo;
+                    }
+                    const blob = new Blob([text], { type: blobType });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `classified_report_${new Date().toISOString().slice(0,10)}.${format}`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                })
+                .catch(err => alert('报告下载失败：' + err.message));
+        }
+
+        downloadBtn.addEventListener('click', () => downloadReport('md'));
+        downloadTxtBtn.addEventListener('click', () => downloadReport('txt'));
+
+        // ==================== 选项卡切换时重置 ====================
+        document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
+            tab.addEventListener('shown.bs.tab', function() {
+                resultFrame.srcdoc = '';
+                resultContainer.style.display = 'none';
+                errorPlaceholder.style.display = 'none';
+                loading.style.display = 'none';
+                setDownloadButtonsVisible(false);
+            });
+        });
+
+        // ==================== 缓存管理 ====================
+        async function refreshCacheStats() {
+            try {
+                const resp = await fetch('/api/cache/stats');
+                const data = await resp.json();
+                document.getElementById('cacheEntries').textContent = data.total_entries;
+                document.getElementById('cacheSizeMB').textContent = data.size_mb.toFixed(1);
+            } catch (e) {
+                console.error('获取缓存状态失败', e);
+            }
+        }
+
+        document.getElementById('clearCacheBtn').addEventListener('click', async () => {
+            if (confirm('确定要清空所有检测缓存吗？')) {
+                await fetch('/api/cache/clear', { method: 'POST' });
+                refreshCacheStats();
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshCacheStats();
+            setInterval(refreshCacheStats, 15000);
+        });
+
+        // ==================== 批量模式文件分类 ====================
         const batchFiles = { files: [], images: [], audios: [] };
-        const imageExts = ['jpg','jpeg','png','gif','bmp','tiff','webp'];
-        const audioExts = ['mp3','wav','flac','aac','ogg','wma','m4a'];
+        const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp'];
+        const audioExts = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a'];
 
         document.getElementById('batchFileInput').addEventListener('change', function(e) {
             const files = Array.from(e.target.files || []);
@@ -623,121 +1264,135 @@
             updateBatchFileInfo();
         };
 
-        // ========== 统一提交辅助函数 ==========
-        function getGlobalConfig() {
-            const algorithm = document.querySelector('input[name="globalAlgorithm"]:checked').value;
-            const keywords = document.getElementById('globalKeywords').value;
-            const maxInsert = document.getElementById('globalMaxInsert').value;
-            return { algorithm, keywords, max_insert: maxInsert };
-        }
-
-        function appendGlobalConfig(formData) {
-            const cfg = getGlobalConfig();
-            formData.append('algorithm', cfg.algorithm);
-            formData.append('keywords', cfg.keywords);
-            formData.append('max_insert', cfg.max_insert);
-        }
-
-        async function fetchCheck(url, formData) {
-            const resp = await fetch(url, { method: 'POST', body: formData });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            return await resp.text();
-        }
-
-        // ========== 批量全检执行 ==========
+        // ==================== 批量全检执行 ====================
         document.getElementById('batchRunAllBtn').addEventListener('click', async () => {
             const accordion = document.getElementById('batchAccordion');
             accordion.innerHTML = '';
             batchResultContainer.style.display = 'block';
             const tasks = [];
 
-            // 1. 网页
-            const batchUrl = document.getElementById('batchUrl').value.trim();
-            if (batchUrl) {
-                tasks.push({ title: '🌐 网页检查', icon: 'web', action: async () => {
-                    const fd = new FormData();
-                    fd.append('url', batchUrl);
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/web/url', fd);
-                }});
-            }
+            // 1. 网页（多个URL）
+            const urls = collectUrls('#batchUrlContainer');
+            urls.forEach((url, i) => {
+                tasks.push({
+                    title: `🌐 网页检查 #${i+1}`,
+                    action: async () => {
+                        const fd = new FormData();
+                        fd.append('url', url);
+                        appendGlobalConfig(fd);
+                        return await fetchCheck('/check/web/url', fd);
+                    }
+                });
+            });
+
             // 2. 文件路径
             const filePath = document.getElementById('batchFilePath').value.trim();
             if (filePath) {
-                tasks.push({ title: '📁 文件路径检查', icon: 'file-path', action: async () => {
-                    const fd = new FormData();
-                    fd.append('path', filePath);
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/file/path', fd);
-                }});
+                tasks.push({
+                    title: '📁 文件路径检查',
+                    action: async () => {
+                        const fd = new FormData();
+                        fd.append('path', filePath);
+                        appendGlobalConfig(fd);
+                        return await fetchCheck('/check/file/path', fd);
+                    }
+                });
             }
             // 3. 图片路径
             const imgPath = document.getElementById('batchImagePath').value.trim();
             if (imgPath) {
-                tasks.push({ title: '🖼️ 图片路径检查', icon: 'image-path', action: async () => {
-                    const fd = new FormData();
-                    fd.append('path', imgPath);
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/image/path', fd);
-                }});
+                tasks.push({
+                    title: '🖼️ 图片路径检查',
+                    action: async () => {
+                        const fd = new FormData();
+                        fd.append('path', imgPath);
+                        appendGlobalConfig(fd);
+                        return await fetchCheck('/check/image/path', fd);
+                    }
+                });
             }
             // 4. 音频路径
             const audioPath = document.getElementById('batchAudioPath').value.trim();
             if (audioPath) {
-                tasks.push({ title: '🎵 音频路径检查', icon: 'audio-path', action: async () => {
-                    const fd = new FormData();
-                    fd.append('path', audioPath);
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/audio/path', fd);
-                }});
+                tasks.push({
+                    title: '🎵 音频路径检查',
+                    action: async () => {
+                        const fd = new FormData();
+                        fd.append('path', audioPath);
+                        appendGlobalConfig(fd);
+                        return await fetchCheck('/check/audio/path', fd);
+                    }
+                });
             }
             // 5. 上传文件（分三类）
             if (batchFiles.files.length > 0) {
-                tasks.push({ title: '📤 文件上传检查', icon: 'file-upload', action: async () => {
-                    const fd = new FormData();
-                    batchFiles.files.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/file/upload', fd);
-                }});
+                tasks.push({
+                    title: '📤 文件上传检查',
+                    action: async () => {
+                        const fd = new FormData();
+                        batchFiles.files.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
+                        appendGlobalConfig(fd);
+                        return await fetchCheck('/check/file/upload', fd);
+                    }
+                });
             }
             if (batchFiles.images.length > 0) {
-                tasks.push({ title: '🖼️ 图片上传检查', icon: 'image-upload', action: async () => {
-                    const fd = new FormData();
-                    batchFiles.images.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/image/upload', fd);
-                }});
+                tasks.push({
+                    title: '🖼️ 图片上传检查',
+                    action: async () => {
+                        const fd = new FormData();
+                        batchFiles.images.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
+                        appendGlobalConfig(fd);
+                        return await fetchCheck('/check/image/upload', fd);
+                    }
+                });
             }
             if (batchFiles.audios.length > 0) {
-                tasks.push({ title: '🎵 音频上传检查', icon: 'audio-upload', action: async () => {
-                    const fd = new FormData();
-                    batchFiles.audios.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/audio/upload', fd);
-                }});
+                tasks.push({
+                    title: '🎵 音频上传检查',
+                    action: async () => {
+                        const fd = new FormData();
+                        batchFiles.audios.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
+                        appendGlobalConfig(fd);
+                        return await fetchCheck('/check/audio/upload', fd);
+                    }
+                });
             }
-            // 6. 数据库
-            const dbHost = document.getElementById('batchHost').value.trim();
-            const dbPort = document.getElementById('batchPort').value.trim();
-            const dbName = document.getElementById('batchDbname').value.trim();
-            const dbUser = document.getElementById('batchUser').value.trim();
-            const dbPassword = document.getElementById('batchPassword').value;
-            const dbConnStr = document.getElementById('batchConnStr').value.trim();
-            const dbType = document.getElementById('batchDbType').value;
-            if (dbName || dbConnStr) {
-                tasks.push({ title: '🗄️ 数据库检查', icon: 'db', action: async () => {
-                    const fd = new FormData();
-                    fd.append('db_type', dbType);
-                    fd.append('host', dbHost);
-                    if (dbPort) fd.append('port', dbPort);
-                    fd.append('dbname', dbName);
-                    fd.append('user', dbUser);
-                    fd.append('password', dbPassword);
-                    if (dbConnStr) fd.append('conn_str', dbConnStr);
-                    appendGlobalConfig(fd);
-                    return await fetchCheck('/check/db/connect', fd);
-                }});
-            }
+            // 6. 数据库（多个连接）
+            const dbCards = document.querySelectorAll('#batchDbContainer .db-card');
+            dbCards.forEach((card, i) => {
+                const scanAll = card.querySelector('.scan-all-db').checked;
+                const dbType = card.querySelector('.db-type').value;
+                const host = card.querySelector('.db-host').value.trim();
+                const port = card.querySelector('.db-port').value.trim();
+                const dbname = card.querySelector('.db-name').value.trim();
+                const user = card.querySelector('.db-user').value.trim();
+                const password = card.querySelector('.db-password').value;
+                const connStr = card.querySelector('.db-conn-str').value.trim();
+
+                if (dbname || connStr || scanAll) {
+                    const label = scanAll
+                        ? `扫描所有库 (${host}:${port || '默认端口'})`
+                        : (dbname || connStr);
+                    tasks.push({
+                        title: `🗄️ 数据库检查 #${i+1}：${label}`,
+                        action: async () => {
+                            const fd = new FormData();
+                            fd.append('db_type', dbType);
+                            fd.append('host', host);
+                            if (port) fd.append('port', port);
+                            fd.append('dbname', dbname);
+                            fd.append('user', user);
+                            fd.append('password', password);
+                            if (connStr) fd.append('conn_str', connStr);
+                            if (scanAll) fd.append('scan_all', 'true');
+                            appendGlobalConfig(fd);
+                            const endpoint = scanAll ? '/check/db/scan-all' : '/check/db/connect';
+                            return await fetchCheck(endpoint, fd);
+                        }
+                    });
+                }
+            });
 
             if (tasks.length === 0) {
                 alert('请至少填写一项检查内容！');
@@ -745,7 +1400,7 @@
                 return;
             }
 
-            // 显示加载状态
+            // 串行执行
             loading.style.display = 'block';
             let idx = 0;
             for (const task of tasks) {
@@ -766,39 +1421,40 @@
                         </div>
                     </div>`;
                 accordion.insertAdjacentHTML('beforeend', cardHtml);
-                // 自动展开当前任务
                 const collapseEl = document.getElementById(collapseId);
                 new bootstrap.Collapse(collapseEl, { toggle: true });
 
                 try {
                     const html = await task.action();
                     document.getElementById(`status-${idx}`).textContent = '✅ 完成';
-                    document.getElementById(`body-${idx}`).innerHTML = `<iframe srcdoc="${html.replace(/"/g, '&quot;')}" style="width:100%; border:none; min-height:400px;"></iframe>`;
-                    // 调整iframe高度
+                    document.getElementById(`body-${idx}`).innerHTML =
+                        `<iframe srcdoc="${html.replace(/"/g, '&quot;').replace(/\\/g, '\\\\')}" style="width:100%; border:none; min-height:400px;"></iframe>`;
                     const iframe = document.querySelector(`#${collapseId} iframe`);
                     if (iframe) {
                         iframe.onload = function() {
-                            this.style.height = (this.contentDocument.body.scrollHeight + 20) + 'px';
+                            try {
+                                this.style.height = (this.contentDocument.body.scrollHeight + 20) + 'px';
+                            } catch (e) {}
                         };
                     }
                 } catch (err) {
                     document.getElementById(`status-${idx}`).textContent = '❌ 失败';
-                    document.getElementById(`body-${idx}`).innerHTML = `<div class="alert alert-danger m-3">${err.message}</div>`;
+                    document.getElementById(`body-${idx}`).innerHTML =
+                        `<div class="alert alert-danger m-3">${err.message}</div>`;
                 }
             }
             loading.style.display = 'none';
-            // 显示批量下载按钮
             document.getElementById('batchDownloadMdBtn').style.display = 'inline-block';
             document.getElementById('batchDownloadTxtBtn').style.display = 'inline-block';
         });
 
-        // 批量报告下载（拼接各任务结果）
+        // ==================== 批量报告下载 ====================
         window.downloadBatchReport = function(format) {
             const accordion = document.getElementById('batchAccordion');
             const cards = accordion.querySelectorAll('.card');
             let report = '# 涉密批量检查报告\n\n';
             cards.forEach((card, i) => {
-                const header = card.querySelector('.card-header').textContent.replace(/✅|❌|执行中\.\.\./g,'').trim();
+                const header = card.querySelector('.card-header').textContent.replace(/✅|❌|执行中\.\.\./g, '').trim();
                 const iframe = card.querySelector('iframe');
                 let content = '';
                 if (iframe && iframe.srcdoc) {
@@ -819,9 +1475,32 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         };
+        // 监听开关变化，自动切换数据库名输入框的显示/隐藏
+        function bindScanAllToggle(card) {
+            const scanAllCheckbox = card.querySelector('.scan-all-db');
+            const dbNameInput = card.querySelector('input[name="dbname"], .db-name');
+            if (scanAllCheckbox && dbNameInput) {
+                scanAllCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        dbNameInput.style.display = 'none';
+                        dbNameInput.value = ''; // 清空已填内容
+                    } else {
+                        dbNameInput.style.display = '';
+                    }
+                });
+            }
+        }
 
-        // ========== 独立模式表单提交逻辑（保留原有代码） ==========
-        // ... 此处省略，实际文件中已包含完整独立模式逻辑 ...
+        // 对现有卡片绑定
+        document.querySelectorAll('.db-card').forEach(card => bindScanAllToggle(card));
+
+        // 创建新卡片后也要绑定
+        const originalCreateDbCard = createDbCard;
+        createDbCard = function(containerSelector) {
+            const card = originalCreateDbCard(containerSelector);
+            bindScanAllToggle(card);
+            return card;
+        };
     </script>
 </body>
 </html>
