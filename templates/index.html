@@ -498,9 +498,12 @@
                         <input type="file" id="batchFileInput" class="form-control" multiple style="display:none;">
                         <input type="file" id="batchFolderInput" class="form-control" webkitdirectory multiple style="display:none;">
                         <div id="batchFileInfo" class="mt-2 text-start" style="display:none;">
-                            <div class="alert alert-info py-2 px-3 mb-0 d-flex justify-content-between align-items-center">
-                                <span>📄 文件 <span id="batchFileCount">0</span> | 🖼️ 图片 <span id="batchImageCount">0</span> | 🎵 音频 <span id="batchAudioCount">0</span></span>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearBatchFiles()">清除</button>
+                            <div class="alert alert-info py-2 px-3 mb-0">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span>📄 文件 <span id="batchFileCount">0</span> | 🖼️ 图片 <span id="batchImageCount">0</span> | 🎵 音频 <span id="batchAudioCount">0</span></span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearBatchFiles()">清除</button>
+                                </div>
+                                <div id="batchFileList" style="max-height:200px; overflow-y:auto; margin-top:8px; font-size:0.9rem;"></div>
                             </div>
                         </div>
                     </div>
@@ -1353,11 +1356,20 @@
             this.value = '';
         });
         function updateBatchFileInfo() {
-            const total = batchFiles.files.length + batchFiles.images.length + batchFiles.audios.length;
+            const allFiles = [...batchFiles.files, ...batchFiles.images, ...batchFiles.audios];
+            const total = allFiles.length;
             document.getElementById('batchFileInfo').style.display = total > 0 ? 'block' : 'none';
             document.getElementById('batchFileCount').textContent = batchFiles.files.length;
             document.getElementById('batchImageCount').textContent = batchFiles.images.length;
             document.getElementById('batchAudioCount').textContent = batchFiles.audios.length;
+
+            const fileListDiv = document.getElementById('batchFileList');
+            if (fileListDiv) {
+                fileListDiv.innerHTML = allFiles.map((file, idx) => {
+                    const displayName = file.webkitRelativePath || file.name;
+                    return `<div class="text-truncate" title="${displayName}">${idx + 1}. ${displayName}</div>`;
+                }).join('');
+            }
         }
         window.clearBatchFiles = function () {
             batchFiles.files = [];
