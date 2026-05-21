@@ -59,6 +59,27 @@ class DBConnector:
             try: self.conn.close()
             except: pass
 
+    def get_databases(self):
+        """返回所有非系统数据库名列表"""
+        try:
+            if self.db_type == 'mysql':
+                self.cursor.execute("SHOW DATABASES")
+                rows = self.cursor.fetchall()
+                # 兼容 DictCursor 和普通 Cursor
+                databases = []
+                for row in rows:
+                    db_name = row['Database'] if isinstance(row, dict) else row[0]
+                    if db_name not in ('information_schema', 'mysql',
+                                       'performance_schema', 'sys'):
+                        databases.append(db_name)
+                return databases
+            elif self.db_type == 'sqlite':
+                return ['main']
+            else:
+                return []
+        except Exception as e:
+            print(f"获取数据库列表失败: {e}")
+            return []
     def get_tables(self) -> List[str]:
         tables = []
         try:

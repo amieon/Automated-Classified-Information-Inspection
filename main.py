@@ -234,6 +234,104 @@ def create_app(modules: list = None):
 
         return HTMLResponse(content=full_html)
 
+
+    # ===== 扫描数据库所有库 =====
+    @app.post("/check/db/scan-all", response_class=HTMLResponse)
+    async def db_scan_all(
+        db_type: str = Form("mysql"),
+        host: str = Form("localhost"),
+        port: int = Form(None),
+        dbname: str = Form(""),
+        user: str = Form(""),
+        password: str = Form(""),
+        conn_str: str = Form(""),
+        scan_all: str = Form("true"),
+        algorithm: str = Form("regex"),
+        keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+        max_insert: int = Form(3),
+    ):
+        from checkers.db_checker import DBConnector, DBCheckerModule
+
+        html_parts = []
+        full_text = ""
+
+        conn_kwargs = dict(
+            db_type=db_type, host=host, port=port or 3306,
+            user=user, password=password, database=dbname,
+        )
+
+        connector = DBConnector(**conn_kwargs)
+        if not connector.connect():
+            return HTMLResponse(
+                "<div class='alert alert-danger'>❌ 数据库连接失败</div>"
+            )
+
+        try:
+            databases = connector.get_databases()
+            if not databases:
+                return HTMLResponse(
+                    "<div class='alert alert-warning'>⚠️ 连接成功，但未找到任何库</div>"
+                )
+
+            db_checker = DBCheckerModule()
+            all_db_count = len(databases)
+            scanned_count = 0
+
+            for db_name in databases:
+                conn_kwargs["database"] = db_name
+                connector2 = DBConnector(**conn_kwargs)
+                if not connector2.connect():
+                    html_parts.append(
+                        f"<div class='alert alert-warning'>⚠️ 库 {db_name} 连接失败，跳过</div>"
+                    )
+                    continue
+                try:
+                    tables = connector2.get_tables()
+                    if not tables:
+                        html_parts.append(
+                            f"<div class='text-muted'>📭 库 <b>{db_name}</b>：无表</div>"
+                        )
+                        continue
+
+                    results = db_checker._parallel_scan(
+                        tables=tables, keywords=keywords,
+                        algorithm=algorithm, max_insert=max_insert,
+                        **conn_kwargs,
+                    )
+                    db_info = f"{db_type} {host}:{port}/{db_name}"
+                    html_block = db_checker._build_html_result(
+                        results, tables, len(tables), db_path=db_info
+                    )
+                    text_block = db_checker._generate_text_report(
+                        results, tables, len(tables), f"数据库: {db_info}"
+                    )
+
+                    html_parts.append(
+                        f"<h5 style='margin-top:1rem;'>🗄️ {db_info}（{len(tables)} 张表）</h5><hr>{html_block}"
+                    )
+                    full_text += text_block + "\n\n"
+                    scanned_count += 1
+                finally:
+                    connector2.disconnect()
+
+            # 汇总标题
+            summary = (
+                f"<h4>🔍 扫描所有库完成：共 {all_db_count} 个库，"
+                f"实际扫描 {scanned_count} 个库</h4><hr>"
+            )
+            full_html = summary + "".join(html_parts)
+
+            global LATEST_REPORT, LATEST_REPORTS
+            LATEST_REPORT = full_text
+            LATEST_REPORTS = {}
+            publish_latest_report(full_text)
+
+            return HTMLResponse(content=full_html)
+
+        finally:
+            connector.disconnect()
+
+
     return app
 
 
