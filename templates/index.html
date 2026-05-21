@@ -946,7 +946,8 @@
                 alert('请至少输入一个网址！');
                 return;
             }
-            // 显示加载
+
+            // 界面状态切换（跟原来一模一样）
             loading.style.display = 'block';
             resultContainer.style.display = 'none';
             errorPlaceholder.style.display = 'none';
@@ -957,33 +958,38 @@
             let combinedHtml = '';
             let allServerTimes = [];
 
-            for (let i = 0; i < urls.length; i++) {
-                const fd = new FormData();
-                fd.append('url', urls[i]);
-                appendGlobalConfig(fd);
-                try {
-                    const resp = await fetch(this.dataset.action, { method: 'POST', body: fd });
-                    const serverTime = resp.headers.get('X-Process-Time');
-                    if (serverTime) allServerTimes.push(serverTime);
-                    const html = await resp.text();
-                    if (urls.length > 1) {
-                        combinedHtml += `<h5 style="margin-top:1rem;">🌐 网址 ${i+1}：${urls[i]}</h5><hr>` + html;
-                    } else {
-                        combinedHtml = html;
-                    }
-                } catch (err) {
-                    combinedHtml += `<div class="alert alert-danger">网址 ${urls[i]} 检查失败：${err.message}</div>`;
+            // ✅ 关键改动：一次性把所有 URL 放进同一个 FormData
+            const fd = new FormData();
+            urls.forEach(u => fd.append('url', u));   // 同名字段允许多个值
+            appendGlobalConfig(fd);
+
+            try {
+                const resp = await fetch(this.dataset.action, { method: 'POST', body: fd });
+                const serverTime = resp.headers.get('X-Process-Time');
+                if (serverTime) allServerTimes.push(serverTime);
+                const html = await resp.text();
+
+                // 如果你希望像原来一样显示网址标题，就在前端手动添加
+                // 注意：后端现在会返回一个包含所有结果的完整报告，所以只需要一个总标题即可
+                if (urls.length > 1) {
+                    combinedHtml = `<h5 style="margin-top:1rem;">🌐 批量网址检测（共 ${urls.length} 个）</h5><hr>` + html;
+                } else {
+                    combinedHtml = html;
                 }
+            } catch (err) {
+                combinedHtml = `<div class="alert alert-danger">批量检测失败：${err.message}</div>`;
             }
 
+            // 保存性能统计
             const clientTotal = ((performance.now() - checkStartTime) / 1000).toFixed(2);
             window._lastCheckServerTime = allServerTimes.join(', ') || 'N/A';
             window._lastCheckClientTotal = clientTotal;
             window._lastCheckStartTime = checkStartTime;
 
+            // ✅ 关键：赋值 srcdoc，然后隐藏 loading，让 iframe 触发 onload
             resultFrame.srcdoc = combinedHtml;
             loading.style.display = 'none';
-            // iframe onload 会处理显示
+            // iframe 的 load 事件会自动调用 setDownloadButtonsVisible(true) 显示按钮
         });
 
         // 其他 check-form（非多URL、非多DB）
