@@ -491,7 +491,12 @@
                     <h5 class="fw-bold mb-3">📤 批量文件上传（自动分类）</h5>
                     <div class="file-upload-area">
                         <p><i class="bi bi-folder-check" style="font-size:2rem;color:#667eea;"></i> 点击选择文件或文件夹</p>
-                        <input type="file" id="batchFileInput" class="form-control" multiple webkitdirectory>
+                        <div class="btn-group mb-3" role="group">
+                            <button type="button" class="btn btn-outline-primary active" id="batchFileModeBtn">选择文件</button>
+                            <button type="button" class="btn btn-outline-primary" id="batchFolderModeBtn">选择文件夹</button>
+                        </div>
+                        <input type="file" id="batchFileInput" class="form-control" multiple style="display:none;">
+                        <input type="file" id="batchFolderInput" class="form-control" webkitdirectory multiple style="display:none;">
                         <div id="batchFileInfo" class="mt-2 text-start" style="display:none;">
                             <div class="alert alert-info py-2 px-3 mb-0 d-flex justify-content-between align-items-center">
                                 <span>📄 文件 <span id="batchFileCount">0</span> | 🖼️ 图片 <span id="batchImageCount">0</span> | 🎵 音频 <span id="batchAudioCount">0</span></span>
@@ -1241,23 +1246,112 @@
 
         // ==================== 批量模式文件分类 ====================
         const batchFiles = { files: [], images: [], audios: [] };
-        const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp'];
-        const audioExts = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a'];
-
-        document.getElementById('batchFileInput').addEventListener('change', function(e) {
-            const files = Array.from(e.target.files || []);
-            batchFiles.files = [];
-            batchFiles.images = [];
-            batchFiles.audios = [];
-            files.forEach(f => {
-                const ext = f.name.split('.').pop().toLowerCase();
-                if (imageExts.includes(ext)) batchFiles.images.push(f);
-                else if (audioExts.includes(ext)) batchFiles.audios.push(f);
-                else batchFiles.files.push(f);
-            });
-            updateBatchFileInfo();
+        // ---------- 文件/文件夹模式切换 ----------
+        document.getElementById('batchFileModeBtn').addEventListener('click', function () {
+            document.getElementById('batchFileModeBtn').classList.add('active');
+            document.getElementById('batchFolderModeBtn').classList.remove('active');
+            document.getElementById('batchFileInput').click();
         });
-
+        document.getElementById('batchFolderModeBtn').addEventListener('click', function () {
+            document.getElementById('batchFolderModeBtn').classList.add('active');
+            document.getElementById('batchFileModeBtn').classList.remove('active');
+            document.getElementById('batchFolderInput').click();
+        });
+        // ---------- 魔数检测相关函数 ----------
+        const MAGIC_SIGNATURES = {
+            'ffd8ff': { type: 'image', ext: 'jpg', mime: 'image/jpeg', desc: 'JPEG图片' },
+            '89504e47': { type: 'image', ext: 'png', mime: 'image/png', desc: 'PNG图片' },
+            '47494638': { type: 'image', ext: 'gif', mime: 'image/gif', desc: 'GIF图片' },
+            '424d': { type: 'image', ext: 'bmp', mime: 'image/bmp', desc: 'BMP图片' },
+            '52494646': { type: 'image', ext: 'webp', mime: 'image/webp', desc: 'WebP图片', needsMore: true, moreOffset: 8, moreMagic: '57454250' },
+            '494433': { type: 'audio', ext: 'mp3', mime: 'audio/mpeg', desc: 'MP3音频(ID3v2)' },
+            'fffb': { type: 'audio', ext: 'mp3', mime: 'audio/mpeg', desc: 'MP3音频(MPEG)' },
+            'fff3': { type: 'audio', ext: 'mp3', mime: 'audio/mpeg', desc: 'MP3音频(MPEG)' },
+            '664c6143': { type: 'audio', ext: 'flac', mime: 'audio/flac', desc: 'FLAC无损音频' },
+            '4f676753': { type: 'audio', ext: 'ogg', mime: 'audio/ogg', desc: 'OGG音频' },
+            '0000001466747970': { type: 'audio', ext: 'm4a', mime: 'audio/mp4', desc: 'M4A音频', needsMore: true, moreOffset: 4, moreMagic: '66747970' },
+            '25504446': { type: 'document', ext: 'pdf', mime: 'application/pdf', desc: 'PDF文档' },
+            '504b0304': { type: 'document', ext: 'zip', mime: 'application/zip', desc: 'ZIP压缩包/DOCX/XLSX' },
+            '526172211a0700': { type: 'document', ext: 'rar', mime: 'application/x-rar-compressed', desc: 'RAR压缩包' },
+            '377abcaf271c': { type: 'document', ext: '7z', mime: 'application/x-7z-compressed', desc: '7z压缩包' },
+            'd0cf11e0a1b11ae1': { type: 'document', ext: 'doc', mime: 'application/msword', desc: 'DOC文档(旧格式)' },
+            '000001ba': { type: 'video', ext: 'mpg', mime: 'video/mpeg', desc: 'MPEG视频' },
+            '000001b3': { type: 'video', ext: 'mpg', mime: 'video/mpeg', desc: 'MPEG视频' },
+            '1a45dfa3': { type: 'video', ext: 'mkv', mime: 'video/x-matroska', desc: 'MKV视频' },
+        };
+        function readFileHeader(file, bytesToRead = 16) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = (e) => {
+                    const arr = new Uint8Array(e.target.result);
+                    let hex = '';
+                    for (let i = 0; i < arr.length; i++) {
+                        hex += arr[i].toString(16).padStart(2, '0');
+                    }
+                    resolve(hex);
+                };
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file.slice(0, bytesToRead));
+            });
+        }
+        function detectFileTypeByMagic(hex) {
+            hex = hex.toLowerCase();
+            for (const [magic, info] of Object.entries(MAGIC_SIGNATURES)) {
+                if (hex.startsWith(magic)) {
+                    if (info.needsMore) {
+                        const morePart = hex.substring(info.moreOffset, info.moreOffset + info.moreMagic.length);
+                        if (morePart !== info.moreMagic) continue;
+                    }
+                    return { ...info };
+                }
+            }
+            return null;
+        }
+        async function detectFileType(file) {
+            try {
+                const header = await readFileHeader(file, 16);
+                const magicResult = detectFileTypeByMagic(header);
+                if (magicResult) return { ...magicResult, method: '魔数检测' };
+            } catch (e) { /* fallback */ }
+            // 回退到扩展名
+            const ext = file.name.split('.').pop().toLowerCase();
+            const mimeMap = {
+                'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif',
+                'bmp': 'image/bmp', 'webp': 'image/webp', 'mp3': 'audio/mpeg', 'wav': 'audio/wav',
+                'flac': 'audio/flac', 'ogg': 'audio/ogg', 'm4a': 'audio/mp4', 'aac': 'audio/aac',
+                'pdf': 'application/pdf', 'zip': 'application/zip', 'rar': 'application/x-rar-compressed',
+                '7z': 'application/x-7z-compressed',
+            };
+            const mime = mimeMap[ext] || 'application/octet-stream';
+            let type = 'file';
+            if (['jpg','jpeg','png','gif','bmp','webp'].includes(ext)) type = 'image';
+            else if (['mp3','wav','flac','ogg','m4a','aac','wma'].includes(ext)) type = 'audio';
+            return { type, ext, mime, desc: `${ext.toUpperCase()}文件`, method: '扩展名推测' };
+        }
+        // ---------- 累积添加文件（去重并基于魔数分类）----------
+        async function addBatchFiles(newFiles) {
+            for (const f of Array.from(newFiles)) {
+                const allExisting = [...batchFiles.files, ...batchFiles.images, ...batchFiles.audios];
+                const exists = allExisting.some(ex =>
+                    ex.name === f.name && ex.size === f.size && ex.lastModified === f.lastModified
+                );
+                if (exists) continue;
+                const detected = await detectFileType(f);
+                if (detected.type === 'image') batchFiles.images.push(f);
+                else if (detected.type === 'audio') batchFiles.audios.push(f);
+                else batchFiles.files.push(f);
+            }
+            updateBatchFileInfo();
+        }
+        // ---------- 绑定两个文件 input 的 change 事件 ----------
+        document.getElementById('batchFileInput').addEventListener('change', function (e) {
+            addBatchFiles(e.target.files);
+            this.value = '';   // 允许重复选择同一文件
+        });
+        document.getElementById('batchFolderInput').addEventListener('change', function (e) {
+            addBatchFiles(e.target.files);
+            this.value = '';
+        });
         function updateBatchFileInfo() {
             const total = batchFiles.files.length + batchFiles.images.length + batchFiles.audios.length;
             document.getElementById('batchFileInfo').style.display = total > 0 ? 'block' : 'none';
@@ -1265,14 +1359,16 @@
             document.getElementById('batchImageCount').textContent = batchFiles.images.length;
             document.getElementById('batchAudioCount').textContent = batchFiles.audios.length;
         }
-
-        window.clearBatchFiles = function() {
+        window.clearBatchFiles = function () {
             batchFiles.files = [];
             batchFiles.images = [];
             batchFiles.audios = [];
             document.getElementById('batchFileInput').value = '';
+            document.getElementById('batchFolderInput').value = '';
             updateBatchFileInfo();
         };
+
+
 
         // ==================== 批量全检执行 ====================
         document.getElementById('batchRunAllBtn').addEventListener('click', async () => {
@@ -1514,6 +1610,7 @@
         createDbCard = function(containerSelector) {
             const card = originalCreateDbCard(containerSelector);
             bindScanAllToggle(card);
+            updateDbRemoveButtons(containerSelector);
             return card;
         };
     </script>
