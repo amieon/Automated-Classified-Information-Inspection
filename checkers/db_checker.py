@@ -185,9 +185,113 @@ class DBCheckerModule(BaseChecker):
                 dbname: str = Form(""),
                 algorithm: str = Form("regex"),
                 keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
-                max_insert: int = Form(3)
+                max_insert: int = Form(3),
+                db_configs_json: str = Form(None)  # ✅ 新增：接受批量配置 JSON 字符串
         ):
-            # 先用一个临时连接取表名
+            # ===== 批量模式：前端传了 db_configs_json =====
+            if db_configs_json:
+                import json
+                try:
+                    configs = json.loads(db_configs_json)
+                except:
+                    return HTMLResponse(content="""
+                        <div class='alert alert-danger'>❌ 数据库配置 JSON 格式错误</div>
+                    """)
+
+                if not isinstance(configs, list) or len(configs) == 0:
+                    return HTMLResponse(content="""
+                        <div class='alert alert-warning'>请至少提供一个数据库连接配置</div>
+                    """)
+
+                all_html_parts = []
+                full_text_report = ""
+                total_leak_count = 0
+                total_affected_tables = 0
+                failed_connections = 0
+                for idx, cfg in enumerate(configs, 1):
+                    # 从配置字典提取参数（兼容 dbname / database 两种写法）
+                    c_db_type = cfg.get("db_type", "mysql")
+                    c_host = cfg.get("host", "localhost")
+                    c_port = cfg.get("port") or 3306
+                    c_user = cfg.get("user", "")
+                    c_password = cfg.get("password", "")
+                    c_database = cfg.get("database") or cfg.get("dbname", "")
+                    c_conn_str = cfg.get("conn_str", "")
+                    c_scan_all = cfg.get("scan_all", False)
+
+                    # 如果提供了连接字符串，暂时忽略其他字段（按原逻辑处理）
+                    if c_conn_str:
+                        # 如果你有连接字符串解析逻辑，可以在这里处理；否则跳过
+                        all_html_parts.append(f"""
+                        <div class='alert alert-warning'>连接字符串模式暂未支持批量检查（数据库 #{idx}）</div>
+                        """)
+                        continue
+
+                    # 构建连接参数
+                    conn_kwargs = dict(
+                        db_type=c_db_type,
+                        host=c_host,
+                        port=c_port,
+                        user=c_user,
+                        password=c_password,
+                        database=c_database
+                    )
+
+                    connector = DBConnector(**conn_kwargs)
+                    if not connector.connect():
+                        failed_connections += 1
+                        all_html_parts.append(f"""
+                        <div class='alert alert-danger'>❌ 数据库 #{idx} 连接失败：{c_host}:{c_port}/{c_database}</div>
+                        """)
+                        continue
+
+                    try:
+                        tables = connector.get_tables()
+                        if not tables:
+                            all_html_parts.append(f"""
+                            <div class='alert alert-warning'>数据库 #{idx} 连接成功，但未找到任何表</div>
+                            """)
+                            continue
+
+                        # 执行并行表扫描
+                        results = self._parallel_scan(
+                            tables=tables,
+                            keywords=keywords,
+                            algorithm=algorithm,
+                            max_insert=max_insert,
+                            **conn_kwargs
+                        )
+
+                        # 生成该数据库的独立 HTML 块
+                        db_info = f"{c_db_type} {c_host}:{c_port}/{c_database}"
+                        html_block = self._build_html_result(results, tables, len(tables), db_path=db_info)
+                        combined_html = f"<h4 class='mt-4'>🗄️ 数据库 #{idx}：{db_info}</h4><hr>" + html_block
+                        all_html_parts.append(combined_html)
+                        # 2. ★ 文本部分：调用单库报告生成函数，拼入总报告
+                        db_text = self._generate_text_report(
+                            results, tables, len(tables),
+                            f"数据库 #{idx}: {db_info}"
+                        )
+                        full_text_report += db_text + "\n\n"
+                        total_leak_count += len(results)
+                        total_affected_tables += len(set(r['table'] for r in results))
+                    finally:
+                        connector.disconnect()
+                    # 汇总统计
+                summary_html = f"""..."""
+                full_html = "".join(all_html_parts) + summary_html
+                # ★ 保存完整的文本报告（包括各库详情）
+                full_text_report = (
+                        f"批量检查报告\n共检查 {len(configs)} 个数据库，"
+                        f"发现 {total_leak_count} 条涉密数据\n\n"
+                        + full_text_report
+                )
+                self._write_report(full_text_report)
+                return HTMLResponse(content=full_html)
+
+            # =================================================================
+            # 单数据库模式（原有逻辑，未改动）
+            # =================================================================
             connector = DBConnector(db_type=db_type, host=host, port=port,
                                     user=user, password=password,
                                     database=database, dbname=dbname)
@@ -203,7 +307,6 @@ class DBCheckerModule(BaseChecker):
                     <div class='alert alert-warning'>数据库连接成功，但未找到任何表。</div>
                     """)
 
-                # ★ 并行扫描，直接传 form 参数
                 all_results = self._parallel_scan(
                     tables=tables,
                     keywords=keywords,
