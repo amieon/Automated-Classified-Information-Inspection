@@ -16,26 +16,34 @@ from utils.report_exporter import publish_latest_report
 class WebCheckerModule(BaseChecker):
     def register_routes(self, app: FastAPI):
         @app.post("/check/web/url", response_class=HTMLResponse)
+        @app.post("/check/web/url", response_class=HTMLResponse)
         async def check_web_url(
-            url: str = Form(...),
-            algorithm: str = Form("regex"),
-            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
-            max_insert: int = Form(3)
+                url: list[str] = Form(...),  # ← 改成 list[str]，接收多个同名表单字段
+                algorithm: str = Form("regex"),
+                keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+                max_insert: int = Form(3)
         ):
             detector_kwargs = dict(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
             # ---------- 0. 初始化缓存并配置当前检测指纹 ----------
             cache = get_cache()
             cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
-            # ---------- 1. 异步爬取 ----------
-            all_pages = await self._crawl_website_async(url)
-            # ---------- 2. 缓存过滤：先返回已缓存的页面，收集未命中项 ----------
-            cached_results = []        # 缓存命中的结果（字典列表）
-            pending_items = []         # (url, html) 待检测项
+
+            # ---------- 1. 异步爬取所有 URL，去重 ----------
+            all_pages_dict: dict[str, str] = {}  # page_url → html，自动去重
+            for single_url in url:
+                pages = await self._crawl_website_async(single_url)
+                for page_url, html in pages:
+                    if page_url not in all_pages_dict:
+                        all_pages_dict[page_url] = html
+
+            all_pages = list(all_pages_dict.items())  # 转回 [(url, html), ...]
+
+            # ---------- 2. 缓存过滤 ----------
+            cached_results = []
+            pending_items = []
             for page_url, html in all_pages:
-                cached = cache.get_web(html)     # 基于内容+配置的指纹查询
+                cached = cache.get_web(html)
                 if cached is not None:
-                    # 缓存命中，复用之前的检测结果，但 url 可能不同（内容相同的不同页面）
-                    # 我们以当前 url 为准
                     result = {
                         'url': page_url,
                         'leak_lines': cached.get('leak_lines', []),
@@ -44,10 +52,10 @@ class WebCheckerModule(BaseChecker):
                     cached_results.append(result)
                 else:
                     pending_items.append((page_url, html))
+
             # ---------- 3. 多进程检测未命中页面 ----------
             detected_results = []
             if pending_items:
-                # 打包配置和页面数据
                 items_with_kwargs = [(detector_kwargs, item) for item in pending_items]
                 detected_results = await asyncio.to_thread(
                     run_parallel,
@@ -57,13 +65,13 @@ class WebCheckerModule(BaseChecker):
                     executor_type="process",
                     collect_results=True
                 )
-                # ---------- 4. 新检测结果写入缓存 ----------
                 for (page_url, html), result in zip(pending_items, detected_results):
-                    # result 已经包含 url、leak_lines、note
                     cache.set_web(html, result)
-            # ---------- 5. 合并所有结果 ----------
+
+            # ---------- 4. 合并结果 ----------
             all_results = cached_results + detected_results
-            # ---------- 6. 构建报告（同原逻辑） ----------
+
+            # ---------- 5. 构建报告 ----------
             html = self._build_html_result(all_results)
             text_report = self._generate_text_report(all_results, mode="网页爬取检查")
             publish_latest_report(text_report)
