@@ -1002,11 +1002,14 @@
             });
         });
 
-        // DB 表单（多数据库）
+                // 独立模式 - 数据库一次提交（所有配置打包发送）
         document.querySelector('#db-check .multi-db-form').addEventListener('submit', async function(e) {
             e.preventDefault();
+
+            // 收集所有数据库卡片
             const dbCards = document.querySelectorAll('#singleDbContainer .db-card');
             const dbConfigs = [];
+
             dbCards.forEach(card => {
                 const scanAll = card.querySelector('.scan-all-db').checked;
                 const dbType = card.querySelector('select[name="db_type"]').value;
@@ -1016,8 +1019,19 @@
                 const user = card.querySelector('input[name="user"]').value.trim();
                 const password = card.querySelector('input[name="password"]').value;
                 const connStr = card.querySelector('input[name="conn_str"]').value.trim();
+
+                // 只添加有效配置（至少填写了数据库名、连接串，或勾选了“扫描所有库”）
                 if (dbname || connStr || scanAll) {
-                    dbConfigs.push({ dbType, host, port, dbname, user, password, connStr, scanAll });
+                    dbConfigs.push({
+                        db_type: dbType,
+                        host: host,
+                        port: port ? parseInt(port) : null,
+                        dbname: dbname,
+                        user: user,
+                        password: password,
+                        conn_str: connStr,
+                        scan_all: scanAll
+                    });
                 }
             });
 
@@ -1026,6 +1040,7 @@
                 return;
             }
 
+            // 界面锁定
             loading.style.display = 'block';
             resultContainer.style.display = 'none';
             errorPlaceholder.style.display = 'none';
@@ -1033,49 +1048,38 @@
             document.getElementById('checkTimer').style.display = 'none';
 
             const checkStartTime = performance.now();
-            let combinedHtml = '';
-            let allServerTimes = [];
 
-            for (let i = 0; i < dbConfigs.length; i++) {
-                const cfg = dbConfigs[i];
-                const fd = new FormData();
-                fd.append('db_type', cfg.dbType);
-                fd.append('host', cfg.host);
-                if (cfg.port) fd.append('port', cfg.port);
-                fd.append('dbname', cfg.dbname);
-                fd.append('user', cfg.user);
-                fd.append('password', cfg.password);
-                if (cfg.connStr) fd.append('conn_str', cfg.connStr);
-                if (cfg.scanAll) fd.append('scan_all', 'true');
-                appendGlobalConfig(fd);
+            // 把所有数据库配置打包成一个 JSON 参数
+            const fd = new FormData();
+            fd.append('db_configs_json', JSON.stringify(dbConfigs));
+            appendGlobalConfig(fd);   // 全局关键词、算法等
 
-                const endpoint = cfg.scanAll ? '/check/db/scan-all' : this.dataset.action;
-                const label = cfg.scanAll
-                    ? `扫描所有库 (${cfg.host}:${cfg.port || '默认端口'})`
-                    : `${cfg.dbname || cfg.connStr}`;
+            try {
+                const resp = await fetch(this.dataset.action, { method: 'POST', body: fd });
+                const serverTime = resp.headers.get('X-Process-Time');
+                const html = await resp.text();
 
-                try {
-                    const resp = await fetch(endpoint, { method: 'POST', body: fd });
-                    const serverTime = resp.headers.get('X-Process-Time');
-                    if (serverTime) allServerTimes.push(serverTime);
-                    const html = await resp.text();
-                    if (dbConfigs.length > 1) {
-                        combinedHtml += `<h5 style="margin-top:1rem;">🗄️ 数据库 ${i+1}：${label}</h5><hr>` + html;
-                    } else {
-                        combinedHtml = html;
-                    }
-                } catch (err) {
-                    combinedHtml += `<div class="alert alert-danger">数据库 ${i+1} (${label}) 检查失败：${err.message}</div>`;
+                let combinedHtml = html;   // 后端直接返回合并后的报告
+
+                // 如果你想在报告开头加一行提示，可以：
+                if (dbConfigs.length > 1) {
+                    combinedHtml = `<h5 style="margin-top:1rem;">🗄️ 批量数据库检测（共 ${dbConfigs.length} 个连接）</h5><hr>` + html;
                 }
+
+                // 保存性能统计
+                const clientTotal = ((performance.now() - checkStartTime) / 1000).toFixed(2);
+                window._lastCheckServerTime = serverTime || 'N/A';
+                window._lastCheckClientTotal = clientTotal;
+                window._lastCheckStartTime = checkStartTime;
+
+                // 赋值给 iframe，触发 onload → 显示下载按钮
+                resultFrame.srcdoc = combinedHtml;
+                loading.style.display = 'none';
+
+            } catch (err) {
+                resultFrame.srcdoc = `<div class="alert alert-danger">数据库批量检查失败：${err.message}</div>`;
+                loading.style.display = 'none';
             }
-
-            const clientTotal = ((performance.now() - checkStartTime) / 1000).toFixed(2);
-            window._lastCheckServerTime = allServerTimes.join(', ') || 'N/A';
-            window._lastCheckClientTotal = clientTotal;
-            window._lastCheckStartTime = checkStartTime;
-
-            resultFrame.srcdoc = combinedHtml;
-            loading.style.display = 'none';
         });
 
         function submitFormAjax(action, formData) {
