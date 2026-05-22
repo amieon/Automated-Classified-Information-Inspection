@@ -357,7 +357,14 @@ def _make_checker(detector_kwargs: dict):
             algorithm=detector_kwargs['algorithm'],
             max_insert=detector_kwargs['max_insert']
         )
-        soup = BeautifulSoup(html_content, 'html.parser')
+        stripped = html_content.strip()
+        if stripped.startswith('<?xml') or page_url.endswith('.xml'):
+            try:
+                soup = BeautifulSoup(html_content, 'xml')
+            except Exception:
+                soup = BeautifulSoup(html_content, 'html.parser')
+        else:
+            soup = BeautifulSoup(html_content, 'html.parser')
         for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
             tag.decompose()
         # 优先找 <main>，找不到再回退到全局
@@ -374,21 +381,26 @@ def _make_checker(detector_kwargs: dict):
 
 # ==================== 模块顶层函数（必须在此位置，可被 pickle） ====================
 def _check_single_page_with_kwargs(item_with_kwargs):
-    """
-    供进程池调用的检测函数。
-    参数：(detector_kwargs, (page_url, html_content))
-    """
     detector_kwargs, (page_url, html_content) = item_with_kwargs
     detector = LeakDetector(
         keywords=detector_kwargs['keywords'],
         algorithm=detector_kwargs['algorithm'],
         max_insert=detector_kwargs['max_insert']
     )
-    soup = BeautifulSoup(html_content, 'html.parser')
+
+    stripped = html_content.strip()
+    if stripped.startswith('<?xml') or page_url.endswith('.xml'):
+        try:
+            soup = BeautifulSoup(html_content, 'xml')
+        except Exception:
+            soup = BeautifulSoup(html_content, 'html.parser')
+    else:
+        soup = BeautifulSoup(html_content, 'html.parser')
+
     for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
         tag.decompose()
-    # 优先找 <main>，找不到再回退到全局
-    main_tag = soup.find('main') or soup  # 如果页面没有 <main> 就还是整页
+
+    main_tag = soup.find('main') or soup
     text = main_tag.get_text(separator='\n', strip=True)
     leak_lines = detector.check_text(text)
     return {
