@@ -1071,7 +1071,7 @@
                 appendGlobalConfig(fd);
 
                 // ✅ 根据 scan_all 选择端点
-                const endpoint = '/check/db/connect';
+                const endpoint = cfg.scan_all ? '/check/db/scan-all' : '/check/db/connect';
 
                 try {
                     const resp = await fetch(endpoint, { method: 'POST', body: fd });
