@@ -4,7 +4,7 @@ import webbrowser
 import threading
 import time
 import json
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
@@ -15,6 +15,7 @@ from utils.report_exporter import (
     REPORT_MEDIA_TYPES,
     build_report_exports,
     publish_latest_report,
+    text_report_to_markdown,
 )
 
 
@@ -37,6 +38,7 @@ def create_app(modules: list = None):
     @app.get("/download_report")
     async def download_report(format: str = DEFAULT_REPORT_FORMAT):
         report_format = (format or DEFAULT_REPORT_FORMAT).lower()
+        # 1. 优先使用已生成的最新报告（包含批量全检）
         reports = LATEST_REPORTS or build_report_exports(LATEST_REPORT)
         if not reports.get("txt"):
             return PlainTextResponse("暂无报告", status_code=400)
@@ -81,8 +83,9 @@ def create_app(modules: list = None):
             print(f"⚠️ 未知模块: {mod_name}，已跳过")
 
     # ===== 新增批量全检接口 =====
-    @app.post("/check/batch", response_class=HTMLResponse)
+    @app.post("/check/batch")
     async def check_batch(
+        # --- 原有表单参数 ---
         url_configs_json: str = Form(None),
         db_configs_json: str = Form(None),
         file_path: str = Form(None),
@@ -91,7 +94,13 @@ def create_app(modules: list = None):
         algorithm: str = Form("regex"),
         keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
         max_insert: int = Form(3),
+        # --- 新增：支持直接返回报告格式 ---
+        format: str = Query(DEFAULT_REPORT_FORMAT),
     ):
+        # 如果 format 是 md 或 txt，但 LATEST_REPORT 已经有内容（例如页面加载后立即下载），
+        # 可以直接返回 —— 但这里我们还是执行检查并生成报告，确保数据最新。
+        # 为了避免重复执行，前端应该先调用（不带 format）获得 HTML，再调用带 format 下载。
+
         url_configs = json.loads(url_configs_json) if url_configs_json else []
         db_configs = json.loads(db_configs_json) if db_configs_json else []
 
@@ -227,13 +236,24 @@ def create_app(modules: list = None):
                     full_text += f"{title} 失败: {e}\n"
 
         full_html = "".join(html_parts)
+
+        # 保存报告（用于后续 /download_report）
         global LATEST_REPORT, LATEST_REPORTS
         LATEST_REPORT = full_text
-        LATEST_REPORTS = {}
+        LATEST_REPORTS = {}                # 让 download_report 动态生成 MD/TXT
         publish_latest_report(full_text)
 
-        return HTMLResponse(content=full_html)
+        # --- 如果明确要求返回文本报告，直接返回纯文本/Markdown ---
+        report_format = format.lower()
+        if report_format in ("md", "txt"):
+            reports = build_report_exports(full_text)  # 会调用 text_report_to_markdown
+            return Response(
+                reports[report_format],
+                media_type=REPORT_MEDIA_TYPES[report_format],
+            )
 
+        # 默认返回 HTML
+        return HTMLResponse(content=full_html)
 
     # ===== 扫描数据库所有库 =====
     @app.post("/check/db/scan-all", response_class=HTMLResponse)
@@ -249,6 +269,8 @@ def create_app(modules: list = None):
         algorithm: str = Form("regex"),
         keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
         max_insert: int = Form(3),
+        # --- 同样支持直接返回报告 ---
+        format: str = Query(DEFAULT_REPORT_FORMAT),
     ):
         from checkers.db_checker import DBConnector, DBCheckerModule
 
@@ -326,10 +348,31 @@ def create_app(modules: list = None):
             LATEST_REPORTS = {}
             publish_latest_report(full_text)
 
+            # 如果要求报告格式，返回文本
+            report_format = format.lower()
+            if report_format in ("md", "txt"):
+                reports = build_report_exports(full_text)
+                return Response(
+                    reports[report_format],
+                    media_type=REPORT_MEDIA_TYPES[report_format],
+                )
+
             return HTMLResponse(content=full_html)
 
         finally:
             connector.disconnect()
+
+    @app.post("/report/combine")
+    async def combine_reports(reports_json: str = Form("[]")):
+        """接收前端传来的各子任务纯文本，合并后存入全局报告"""
+        import json as _json
+        parts = _json.loads(reports_json)
+        combined = "\n\n---\n\n".join(parts)
+        global LATEST_REPORT, LATEST_REPORTS
+        LATEST_REPORT = combined
+        LATEST_REPORTS = {}
+        publish_latest_report(combined)
+        return {"status": "ok", "count": len(parts)}
 
 
     return app

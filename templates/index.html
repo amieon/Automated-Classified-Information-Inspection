@@ -1188,7 +1188,7 @@
             el.innerHTML = `⏱️ 服务器处理耗时：<strong>${window._lastCheckServerTime}</strong> &nbsp;|&nbsp; 前端请求耗时：<strong>${window._lastCheckClientTotal}s</strong>`;
         }
 
-        // ==================== 下载报告 ====================
+        // ==================== 下载报告（独立模式 & 批量模式复用） ====================
         function downloadReport(format) {
             const blobType = format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8';
             fetch(`/download_report?format=${encodeURIComponent(format)}`)
@@ -1389,24 +1389,31 @@
         };
 
 
-
+        let batchTasks = [];
         // ==================== 批量全检执行 ====================
         document.getElementById('batchRunAllBtn').addEventListener('click', async () => {
             const accordion = document.getElementById('batchAccordion');
             accordion.innerHTML = '';
             batchResultContainer.style.display = 'block';
-            const tasks = [];
+            batchTasks = [];   // 每次执行重置
 
             // 1. 网页（多个URL）
             const urls = collectUrls('#batchUrlContainer');
             urls.forEach((url, i) => {
-                tasks.push({
+                batchTasks.push({
                     title: `🌐 网页检查 #${i+1}`,
-                    action: async () => {
+                    endpoint: '/check/web/url',
+                    buildFormData: () => {
                         const fd = new FormData();
                         fd.append('url', url);
                         appendGlobalConfig(fd);
-                        return await fetchCheck('/check/web/url', fd);
+                        return fd;
+                    },
+                    reportMd: '',
+                    action: async function() {
+                        const fd = this.buildFormData();
+                        const html = await fetchCheck(this.endpoint, fd);
+                        return html;
                     }
                 });
             });
@@ -1414,76 +1421,122 @@
             // 2. 文件路径
             const filePath = document.getElementById('batchFilePath').value.trim();
             if (filePath) {
-                tasks.push({
+                batchTasks.push({
                     title: '📁 文件路径检查',
-                    action: async () => {
+                    endpoint: '/check/file/path',
+                    buildFormData: () => {
                         const fd = new FormData();
                         fd.append('path', filePath);
                         appendGlobalConfig(fd);
-                        return await fetchCheck('/check/file/path', fd);
+                        return fd;
+                    },
+                    reportMd: '',
+                    action: async function() {
+                        const fd = this.buildFormData();
+                        const html = await fetchCheck(this.endpoint, fd);
+                        return html;
                     }
                 });
             }
+
             // 3. 图片路径
             const imgPath = document.getElementById('batchImagePath').value.trim();
             if (imgPath) {
-                tasks.push({
+                batchTasks.push({
                     title: '🖼️ 图片路径检查',
-                    action: async () => {
+                    endpoint: '/check/image/path',
+                    buildFormData: () => {
                         const fd = new FormData();
                         fd.append('path', imgPath);
                         appendGlobalConfig(fd);
-                        return await fetchCheck('/check/image/path', fd);
+                        return fd;
+                    },
+                    reportMd: '',
+                    action: async function() {
+                        const fd = this.buildFormData();
+                        const html = await fetchCheck(this.endpoint, fd);
+                        return html;
                     }
                 });
             }
+
             // 4. 音频路径
             const audioPath = document.getElementById('batchAudioPath').value.trim();
             if (audioPath) {
-                tasks.push({
+                batchTasks.push({
                     title: '🎵 音频路径检查',
-                    action: async () => {
+                    endpoint: '/check/audio/path',
+                    buildFormData: () => {
                         const fd = new FormData();
                         fd.append('path', audioPath);
                         appendGlobalConfig(fd);
-                        return await fetchCheck('/check/audio/path', fd);
+                        return fd;
+                    },
+                    reportMd: '',
+                    action: async function() {
+                        const fd = this.buildFormData();
+                        const html = await fetchCheck(this.endpoint, fd);
+                        return html;
                     }
                 });
             }
-            // 5. 上传文件（分三类）
+
+            // 5. 上传文件（按类型）
             if (batchFiles.files.length > 0) {
-                tasks.push({
+                batchTasks.push({
                     title: '📤 文件上传检查',
-                    action: async () => {
+                    endpoint: '/check/file/upload',
+                    buildFormData: () => {
                         const fd = new FormData();
                         batchFiles.files.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
                         appendGlobalConfig(fd);
-                        return await fetchCheck('/check/file/upload', fd);
+                        return fd;
+                    },
+                    reportMd: '',
+                    action: async function() {
+                        const fd = this.buildFormData();
+                        const html = await fetchCheck(this.endpoint, fd);
+                        return html;
                     }
                 });
             }
             if (batchFiles.images.length > 0) {
-                tasks.push({
+                batchTasks.push({
                     title: '🖼️ 图片上传检查',
-                    action: async () => {
+                    endpoint: '/check/image/upload',
+                    buildFormData: () => {
                         const fd = new FormData();
                         batchFiles.images.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
                         appendGlobalConfig(fd);
-                        return await fetchCheck('/check/image/upload', fd);
+                        return fd;
+                    },
+                    reportMd: '',
+                    action: async function() {
+                        const fd = this.buildFormData();
+                        const html = await fetchCheck(this.endpoint, fd);
+                        return html;
                     }
                 });
             }
             if (batchFiles.audios.length > 0) {
-                tasks.push({
+                batchTasks.push({
                     title: '🎵 音频上传检查',
-                    action: async () => {
+                    endpoint: '/check/audio/upload',
+                    buildFormData: () => {
                         const fd = new FormData();
                         batchFiles.audios.forEach(f => fd.append('files', f, f.webkitRelativePath || f.name));
                         appendGlobalConfig(fd);
-                        return await fetchCheck('/check/audio/upload', fd);
+                        return fd;
+                    },
+                    reportMd: '',
+                    action: async function() {
+                        const fd = this.buildFormData();
+                        const html = await fetchCheck(this.endpoint, fd);
+                        return html;
                     }
                 });
             }
+
             // 6. 数据库（多个连接）
             const dbCards = document.querySelectorAll('#batchDbContainer .db-card');
             dbCards.forEach((card, i) => {
@@ -1500,9 +1553,11 @@
                     const label = scanAll
                         ? `扫描所有库 (${host}:${port || '默认端口'})`
                         : (dbname || connStr);
-                    tasks.push({
+                    const endpoint = scanAll ? '/check/db/scan-all' : '/check/db/connect';
+                    batchTasks.push({
                         title: `🗄️ 数据库检查 #${i+1}：${label}`,
-                        action: async () => {
+                        endpoint: endpoint,
+                        buildFormData: () => {
                             const fd = new FormData();
                             fd.append('db_type', dbType);
                             fd.append('host', host);
@@ -1513,14 +1568,19 @@
                             if (connStr) fd.append('conn_str', connStr);
                             if (scanAll) fd.append('scan_all', 'true');
                             appendGlobalConfig(fd);
-                            const endpoint = scanAll ? '/check/db/scan-all' : '/check/db/connect';
-                            return await fetchCheck(endpoint, fd);
+                            return fd;
+                        },
+                        reportMd: '',
+                        action: async function() {
+                            const fd = this.buildFormData();
+                            const html = await fetchCheck(this.endpoint, fd);
+                            return html;
                         }
                     });
                 }
             });
 
-            if (tasks.length === 0) {
+            if (batchTasks.length === 0) {
                 alert('请至少填写一项检查内容！');
                 batchResultContainer.style.display = 'none';
                 return;
@@ -1529,7 +1589,7 @@
             // 串行执行
             loading.style.display = 'block';
             let idx = 0;
-            for (const task of tasks) {
+            for (const task of batchTasks) {
                 idx++;
                 const cardId = `task-${idx}`;
                 const headerId = `heading-${idx}`;
@@ -1552,10 +1612,11 @@
 
                 try {
                     const html = await task.action();
+
                     document.getElementById(`status-${idx}`).textContent = '✅ 完成';
                     const bodyEl = document.getElementById(`body-${idx}`);
                     bodyEl.style.overflow = 'hidden';
-                    bodyEl.innerHTML = '';   // 移除加载动画
+                    bodyEl.innerHTML = '';
 
                     const iframe = document.createElement('iframe');
                     iframe.style.cssText = 'width:100%; border:none; min-height:400px;';
@@ -1568,12 +1629,16 @@
                             const doc = this.contentDocument || this.contentWindow.document;
                             this.style.height = (doc.body.scrollHeight + 20) + 'px';
                             bodyEl.style.maxHeight = 'none';
-                        } catch (e) {}
+                        } catch(e) {}
                     };
-                } catch (err) {
+
+                    const txtResp = await fetch('/download_report?format=txt');
+                    task.reportText = await txtResp.text();   // 保存到任务对象上
+                } catch(err) {
                     document.getElementById(`status-${idx}`).textContent = '❌ 失败';
                     document.getElementById(`body-${idx}`).innerHTML =
                         `<div class="alert alert-danger m-3">${err.message}</div>`;
+                    task.reportText = '';
                 }
             }
             loading.style.display = 'none';
@@ -1581,33 +1646,27 @@
             document.getElementById('batchDownloadTxtBtn').style.display = 'inline-block';
         });
 
-        // ==================== 批量报告下载 ====================
-        window.downloadBatchReport = function(format) {
-            const accordion = document.getElementById('batchAccordion');
-            const cards = accordion.querySelectorAll('.card');
-            let report = '# 涉密批量检查报告\n\n';
-            cards.forEach((card, i) => {
-                const header = card.querySelector('.card-header').textContent.replace(/✅|❌|执行中\.\.\./g, '').trim();
-                const iframe = card.querySelector('iframe');
-                let content = '';
-                if (iframe && iframe.srcdoc) {
-                    content = iframe.srcdoc;
-                } else {
-                    content = card.querySelector('.card-body').innerText.trim();
-                }
-                report += `## ${i+1}. ${header}\n\n${content}\n\n---\n`;
-            });
-            const blobType = format === 'txt' ? 'text/plain;charset=utf-8' : 'text/markdown;charset=utf-8';
-            const blob = new Blob([report], { type: blobType });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `batch_report_${new Date().toISOString().slice(0,10)}.${format}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+        // ==================== 批量报告下载（完全模仿独立模式的下载流程） ====================
+        window.downloadBatchReport = async function(format) {
+            // 1. 从所有已完成的任务里收集详细报告文本
+            const reports = batchTasks
+                .map(task => task.reportText)
+                .filter(text => text && text.trim());
+
+            if (reports.length === 0) {
+                alert('还没有生成任何报告，请先执行检查');
+                return;
+            }
+
+            // 2. 发给后端合并（后端会拼接并存入全局，同时生成 MD/TXT）
+            const fd = new FormData();
+            fd.append('reports_json', JSON.stringify(reports));
+            await fetch('/report/combine', { method: 'POST', body: fd });
+
+            // 3. 像独立模式一样，直接下载后端已经生成好的报告
+            downloadReport(format);   // 这个函数会去请求 /download_report?format=md 或 txt
         };
+
         // 监听开关变化，自动切换数据库名输入框的显示/隐藏
         function bindScanAllToggle(card) {
             const scanAllCheckbox = card.querySelector('.scan-all-db');
