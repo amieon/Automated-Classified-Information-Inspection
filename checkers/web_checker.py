@@ -360,7 +360,10 @@ def _make_checker(detector_kwargs: dict):
         soup = BeautifulSoup(html_content, 'html.parser')
         for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
             tag.decompose()
-        text = soup.get_text(separator='\n', strip=True)
+        # 优先找 <main>，找不到再回退到全局
+        main_tag = soup.find('main') or soup  # 如果页面没有 <main> 就还是整页
+        text = main_tag.get_text(separator='\n', strip=True)
+
         leak_lines = detector.check_text(text)
         return {
             'url': page_url,
@@ -384,7 +387,9 @@ def _check_single_page_with_kwargs(item_with_kwargs):
     soup = BeautifulSoup(html_content, 'html.parser')
     for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
         tag.decompose()
-    text = soup.get_text(separator='\n', strip=True)
+    # 优先找 <main>，找不到再回退到全局
+    main_tag = soup.find('main') or soup  # 如果页面没有 <main> 就还是整页
+    text = main_tag.get_text(separator='\n', strip=True)
     leak_lines = detector.check_text(text)
     return {
         'url': page_url,
