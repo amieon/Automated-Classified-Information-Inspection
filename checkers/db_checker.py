@@ -207,7 +207,8 @@ class DBCheckerModule(BaseChecker):
                 algorithm: str = Form("regex"),
                 keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
                 max_insert: int = Form(3),
-                db_configs_json: str = Form(None)  # ✅ 新增：接受批量配置 JSON 字符串
+                db_configs_json: str = Form(None),
+                scan_all: bool = Form(False),
         ):
             # ===== 批量模式：前端传了 db_configs_json =====
             if db_configs_json:
@@ -267,21 +268,47 @@ class DBCheckerModule(BaseChecker):
                         continue
 
                     try:
-                        tables = connector.get_tables()
-                        if not tables:
-                            all_html_parts.append(f"""
-                            <div class='alert alert-warning'>数据库 #{idx} 连接成功，但未找到任何表</div>
-                            """)
-                            continue
+                        # 根据 scan_all 决定扫描范围
+                        if c_scan_all:
+                            databases = connector.get_databases()
+                            all_tables_local = []
+                            all_results_local = []
+                            for db_name in databases:
+                                sub_conn = DBConnector(
+                                    db_type=c_db_type, host=c_host, port=c_port,
+                                    user=c_user, password=c_password, database=db_name
+                                )
+                                if not sub_conn.connect():
+                                    continue
+                                try:
+                                    sub_tables = sub_conn.get_tables()
+                                    all_tables_local.extend(sub_tables)
+                                    sub_results = self._parallel_scan(
+                                        tables=sub_tables,
+                                        keywords=keywords, algorithm=algorithm, max_insert=max_insert,
+                                        db_type=c_db_type, host=c_host, port=c_port,
+                                        user=c_user, password=c_password, database=db_name
+                                    )
+                                    all_results_local.extend(sub_results)
+                                finally:
+                                    sub_conn.disconnect()
+                            tables = all_tables_local
+                            results = all_results_local
+                        else:
+                            tables = connector.get_tables()
+                            if not tables:
+                                all_html_parts.append(f"""
+                                <div class='alert alert-warning'>数据库 #{idx} 连接成功，但未找到任何表</div>
+                                """)
+                                continue
 
-                        # 执行并行表扫描
-                        results = self._parallel_scan(
-                            tables=tables,
-                            keywords=keywords,
-                            algorithm=algorithm,
-                            max_insert=max_insert,
-                            **conn_kwargs
-                        )
+                            results = self._parallel_scan(
+                                tables=tables,
+                                keywords=keywords,
+                                algorithm=algorithm,
+                                max_insert=max_insert,
+                                **conn_kwargs
+                            )
 
                         # 生成该数据库的独立 HTML 块
                         db_info = f"{c_db_type} {c_host}:{c_port}/{c_database}"
@@ -311,7 +338,7 @@ class DBCheckerModule(BaseChecker):
                 return HTMLResponse(content=full_html)
 
             # =================================================================
-            # 单数据库模式（原有逻辑，未改动）
+            # 单数据库模式
             # =================================================================
             connector = DBConnector(db_type=db_type, host=host, port=port,
                                     user=user, password=password,
@@ -322,6 +349,40 @@ class DBCheckerModule(BaseChecker):
                 """)
 
             try:
+                # ----- 处理 scan_all 扫描所有库 -----
+                if scan_all:
+                    databases = connector.get_databases()
+                    all_tables = []
+                    all_results = []
+
+                    for db_name in databases:
+                        # 为每个库创建独立连接
+                        db_conn = DBConnector(db_type=db_type, host=host, port=port,
+                                              user=user, password=password, database=db_name)
+                        if not db_conn.connect():
+                            continue
+                        try:
+                            tables = db_conn.get_tables()
+                            all_tables.extend(tables)
+                            results = self._parallel_scan(
+                                tables=tables,
+                                keywords=keywords,
+                                algorithm=algorithm,
+                                max_insert=max_insert,
+                                db_type=db_type, host=host, port=port,
+                                user=user, password=password, database=db_name
+                            )
+                            all_results.extend(results)
+                        finally:
+                            db_conn.disconnect()
+
+                    db_info = f"MySQL {host}:{port} (所有库，共{len(databases)}个)"
+                    html = self._build_html_result(all_results, all_tables, len(all_tables), db_path=db_info)
+                    text_report = self._generate_text_report(all_results, all_tables, len(all_tables), db_info)
+                    self._write_report(text_report)
+                    return HTMLResponse(content=html)
+
+                # ----- 原有单库扫描逻辑 -----
                 tables = connector.get_tables()
                 if not tables:
                     return HTMLResponse(content="""
@@ -339,7 +400,7 @@ class DBCheckerModule(BaseChecker):
                 )
 
                 db_info = f"MySQL {host}:{port}/{database or dbname}"
-                html = self._build_html_result(all_results, tables, len(tables))
+                html = self._build_html_result(all_results, tables, len(tables), db_path=db_info)
                 text_report = self._generate_text_report(all_results, tables, len(tables), db_info)
                 self._write_report(text_report)
                 return HTMLResponse(content=html)
@@ -370,6 +431,7 @@ class DBCheckerModule(BaseChecker):
                     return HTMLResponse(content="""
                     <div class='alert alert-warning'>数据库打开成功，但未找到任何表。</div>
                     """)
+
 
                 all_results = self._parallel_scan(
                     tables=tables,

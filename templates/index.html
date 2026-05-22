@@ -1071,7 +1071,7 @@
                 appendGlobalConfig(fd);
 
                 // ✅ 根据 scan_all 选择端点
-                const endpoint = cfg.scan_all ? '/check/db/scan-all' : '/check/db/connect';
+                const endpoint = '/check/db/connect';
 
                 try {
                     const resp = await fetch(endpoint, { method: 'POST', body: fd });
@@ -1553,7 +1553,7 @@
                     const label = scanAll
                         ? `扫描所有库 (${host}:${port || '默认端口'})`
                         : (dbname || connStr);
-                    const endpoint = scanAll ? '/check/db/scan-all' : '/check/db/connect';
+                    const endpoint = '/check/db/connect';
                     batchTasks.push({
                         title: `🗄️ 数据库检查 #${i+1}：${label}`,
                         endpoint: endpoint,
