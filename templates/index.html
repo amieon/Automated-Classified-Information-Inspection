@@ -1601,7 +1601,7 @@
                             ${task.title} <span class="badge bg-light text-dark ms-2" id="status-${idx}">执行中...</span>
                         </div>
                         <div id="${collapseId}" class="collapse" aria-labelledby="${headerId}" data-bs-parent="#batchAccordion">
-                            <div class="card-body" id="body-${idx}" style="max-height:60vh; overflow:auto;">
+                            <div class="card-body" id="body-${idx}">
                                 <div class="d-flex justify-content-center py-4"><div class="spinner-border text-primary"></div></div>
                             </div>
                         </div>
@@ -1619,18 +1619,10 @@
                     bodyEl.innerHTML = '';
 
                     const iframe = document.createElement('iframe');
-                    iframe.style.cssText = 'width:100%; border:none; min-height:400px;';
+                    iframe.style.cssText = 'width:100%; border:none; min-height:400px; max-height:120vh; overflow:auto; display:block;';
                     iframe.scrolling = 'auto';
                     iframe.srcdoc = html;
                     bodyEl.appendChild(iframe);
-
-                    iframe.onload = function() {
-                        try {
-                            const doc = this.contentDocument || this.contentWindow.document;
-                            this.style.height = (doc.body.scrollHeight + 20) + 'px';
-                            bodyEl.style.maxHeight = 'none';
-                        } catch(e) {}
-                    };
 
                     const txtResp = await fetch('/download_report?format=txt');
                     task.reportText = await txtResp.text();   // 保存到任务对象上
