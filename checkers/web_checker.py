@@ -15,7 +15,7 @@ from utils.report_exporter import publish_latest_report
 
 class WebCheckerModule(BaseChecker):
     def register_routes(self, app: FastAPI):
-        @app.post("/check/web/url", response_class=HTMLResponse)
+
         @app.post("/check/web/url", response_class=HTMLResponse)
         async def check_web_url(
                 url: list[str] = Form(...),  # ← 改成 list[str]，接收多个同名表单字段
