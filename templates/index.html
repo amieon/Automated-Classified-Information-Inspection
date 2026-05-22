@@ -1554,20 +1554,22 @@
                     const html = await task.action();
                     document.getElementById(`status-${idx}`).textContent = '✅ 完成';
                     const bodyEl = document.getElementById(`body-${idx}`);
-                    bodyEl.style.overflow = 'hidden';   // ← 去掉外层滚动条
-                    bodyEl.innerHTML =
-                        `<iframe srcdoc="${html.replace(/"/g, '&quot;')}" style="width:100%; border:none; min-height:400px;" scrolling="auto"></iframe>`;
-                    const iframe = bodyEl.querySelector('iframe');
-                    if (iframe) {
-                        iframe.onload = function() {
-                            try {
-                                const doc = this.contentDocument || this.contentWindow.document;
-                                this.style.height = (doc.body.scrollHeight + 20) + 'px';
-                                // iframe 自适应高度后，外层也不需要滚动
-                                bodyEl.style.maxHeight = 'none';
-                            } catch (e) {}
-                        };
-                    }
+                    bodyEl.style.overflow = 'hidden';
+                    bodyEl.innerHTML = '';   // 移除加载动画
+
+                    const iframe = document.createElement('iframe');
+                    iframe.style.cssText = 'width:100%; border:none; min-height:400px;';
+                    iframe.scrolling = 'auto';
+                    iframe.srcdoc = html;
+                    bodyEl.appendChild(iframe);
+
+                    iframe.onload = function() {
+                        try {
+                            const doc = this.contentDocument || this.contentWindow.document;
+                            this.style.height = (doc.body.scrollHeight + 20) + 'px';
+                            bodyEl.style.maxHeight = 'none';
+                        } catch (e) {}
+                    };
                 } catch (err) {
                     document.getElementById(`status-${idx}`).textContent = '❌ 失败';
                     document.getElementById(`body-${idx}`).innerHTML =
