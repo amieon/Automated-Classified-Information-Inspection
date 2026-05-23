@@ -6,13 +6,19 @@ from checkers.keywords import KEYWORDS
 class LeakDetector:
     """涉密关键词检测器"""
 
-    def __init__(self, keywords=None, algorithm="regex", max_insert=3):
+    def __init__(self, keywords=None, algorithm="regex", max_insert=3, *, detector_kwargs=None):
         """
         :param keywords: 关键词列表（或逗号分隔字符串）
         :param algorithm: "regex" 或 "ac"，前端直接传入
         :param max_insert: 模糊匹配最大插入字符数（仅 regex 模式生效）
         """
         # 支持逗号分隔的字符串或列表
+        if detector_kwargs is not None:
+            # 传入字典时，从中提取参数
+            keywords = detector_kwargs.get('keywords')
+            algorithm = detector_kwargs.get('algorithm', 'regex')
+            max_insert = detector_kwargs.get('max_insert', 3)
+
         if isinstance(keywords, str):
             self.keywords = [k.strip() for k in keywords.split(",") if k.strip()]
         else:
