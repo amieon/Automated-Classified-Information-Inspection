@@ -172,11 +172,12 @@ class AudioCheckerModule(BaseChecker):
             keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
             max_insert: int = Form(3)
         ):
-            detector = LeakDetector(
-                keywords=keywords,
-                algorithm=algorithm,
-                max_insert=max_insert
-            )
+            detector_kwargs = {
+                "keywords": keywords,
+                "algorithm": algorithm,
+                "max_insert": max_insert
+            }
+            detector = LeakDetector(**detector_kwargs)
             # 为本次请求创建独立缓存，避免配置混乱
             cache = DetectionCache()
             cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)

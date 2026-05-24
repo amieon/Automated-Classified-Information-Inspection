@@ -352,11 +352,7 @@ def _make_checker(detector_kwargs: dict):
     def check_single_page(item: Tuple[str, str]) -> dict:
         page_url, html_content = item
         # 每个子进程内独立创建 detector
-        detector = LeakDetector(
-            keywords=detector_kwargs['keywords'],
-            algorithm=detector_kwargs['algorithm'],
-            max_insert=detector_kwargs['max_insert']
-        )
+        detector = LeakDetector(**detector_kwargs)
         stripped = html_content.strip()
         if stripped.startswith('<?xml') or page_url.endswith('.xml'):
             try:
@@ -382,11 +378,7 @@ def _make_checker(detector_kwargs: dict):
 # ==================== 模块顶层函数（必须在此位置，可被 pickle） ====================
 def _check_single_page_with_kwargs(item_with_kwargs):
     detector_kwargs, (page_url, html_content) = item_with_kwargs
-    detector = LeakDetector(
-        keywords=detector_kwargs['keywords'],
-        algorithm=detector_kwargs['algorithm'],
-        max_insert=detector_kwargs['max_insert']
-    )
+    detector = LeakDetector(**detector_kwargs)
 
     stripped = html_content.strip()
     if stripped.startswith('<?xml') or page_url.endswith('.xml'):

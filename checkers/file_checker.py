@@ -372,6 +372,11 @@ class FileCheckerModule(BaseChecker):
                 keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
                 max_insert: int = Form(3)
         ):
+            detector_kwargs = {
+                "keywords": keywords,
+                "algorithm": algorithm,
+                "max_insert": max_insert
+            }
             cache = get_cache()
             config_raw = f"{keywords}||{algorithm}||{max_insert}"
             results = []
@@ -407,7 +412,7 @@ class FileCheckerModule(BaseChecker):
                     file_type = cached_result.get('file_type', guess_file_type(content, is_bytes=True))
                     text = read_text_from_bytes(content, file.filename)
                 else:
-                    detector = LeakDetector(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+                    detector = LeakDetector(**detector_kwargs)
                     text = read_text_from_bytes(content, file.filename)
                     leak_lines = detector.check_text(text) if text else []
                     file_type = guess_file_type(content, is_bytes=True)  # ← 修复：加上 is_bytes=True
