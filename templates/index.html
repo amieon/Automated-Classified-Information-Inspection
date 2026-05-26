@@ -571,7 +571,7 @@
                 </div>
                 <!-- 全部检查按钮 -->
                 <div class="text-center mt-4">
-                    <button id="batchRunAllBtn" class="btn check-btn text-white px-5 py-3" style="font-size:1.2rem;">⚡ 全部检查（串行）</button>
+                    <button id="batchRunAllBtn" class="btn check-btn text-white px-5 py-3" style="font-size:1.2rem;">全部检查</button>
                 </div>
             </div>
 
@@ -1640,23 +1640,58 @@
 
         // ==================== 批量报告下载（完全模仿独立模式的下载流程） ====================
         window.downloadBatchReport = async function(format) {
-            // 1. 从所有已完成的任务里收集详细报告文本
             const reports = batchTasks
-                .map(task => task.reportText)
-                .filter(text => text && text.trim());
+                .map((task, i) => {
+                    const text = task.reportText || '';
+                    if (!text.trim()) return '';
+                    return [
+                        `# ${i + 1}. ${task.title}`,
+                        '',
+                        text.trim()
+                    ].join('\n');
+                })
+                .filter(Boolean);
 
             if (reports.length === 0) {
                 alert('还没有生成任何报告，请先执行检查');
                 return;
             }
 
-            // 2. 发给后端合并（后端会拼接并存入全局，同时生成 MD/TXT）
-            const fd = new FormData();
-            fd.append('reports_json', JSON.stringify(reports));
-            await fetch('/report/combine', { method: 'POST', body: fd });
+            const now = new Date();
+            const dateStr = now.toISOString().slice(0, 10);
 
-            // 3. 像独立模式一样，直接下载后端已经生成好的报告
-            downloadReport(format);   // 这个函数会去请求 /download_report?format=md 或 txt
+            let content = [
+                '# 批量全检合集报告',
+                '',
+                `生成时间：${now.toLocaleString()}`,
+                `任务数量：${reports.length}`,
+                '',
+                '---',
+                '',
+                reports.join('\n\n---\n\n')
+            ].join('\n');
+
+            if (format === 'txt') {
+                content = content
+                    .replace(/^# /gm, '')
+                    .replace(/^---$/gm, '============================================================');
+            }
+
+            const blobType = format === 'txt'
+                ? 'text/plain;charset=utf-8'
+                : 'text/markdown;charset=utf-8';
+
+            const blob = new Blob([content], { type: blobType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+
+            a.href = url;
+            a.download = `batch_classified_report_${dateStr}.${format || 'md'}`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         };
 
         // 监听开关变化，自动切换数据库名输入框的显示/隐藏

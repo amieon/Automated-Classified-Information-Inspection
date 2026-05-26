@@ -215,15 +215,19 @@ class DBCheckerModule(BaseChecker):
                 import json
                 try:
                     configs = json.loads(db_configs_json)
-                except:
-                    return HTMLResponse(content="""
+                except Exception as e:
+                    html = """
                         <div class='alert alert-danger'>❌ 数据库配置 JSON 格式错误</div>
-                    """)
+                    """
+                    text = f"数据库检查报告\n结果: 数据库配置 JSON 格式错误：{e}\n"
+                    return self._response_with_report(html, text)
 
                 if not isinstance(configs, list) or len(configs) == 0:
-                    return HTMLResponse(content="""
+                    html = """
                         <div class='alert alert-warning'>请至少提供一个数据库连接配置</div>
-                    """)
+                    """
+                    text = "数据库检查报告\n结果: 请至少提供一个数据库连接配置。\n"
+                    return self._response_with_report(html, text)
 
                 all_html_parts = []
                 full_text_report = ""
@@ -232,21 +236,30 @@ class DBCheckerModule(BaseChecker):
                 failed_connections = 0
                 for idx, cfg in enumerate(configs, 1):
                     # 从配置字典提取参数（兼容 dbname / database 两种写法）
-                    c_db_type = cfg.get("db_type", "mysql")
-                    c_host = cfg.get("host", "localhost")
-                    c_port = cfg.get("port") or 3306
+                    # 从配置字典提取参数（兼容 dbname / database 两种写法）
+                    c_db_type = (cfg.get("db_type") or "mysql").strip().lower()
+                    c_host = (cfg.get("host") or "localhost").strip()
+
+                    # 修复：前端可能传空字符串 ""，int("") 会直接报错
+                    raw_port = cfg.get("port")
+                    if raw_port in (None, ""):
+                        c_port = 3306 if c_db_type == "mysql" else 0
+                    else:
+                        c_port = int(raw_port)
+
                     c_user = cfg.get("user", "")
                     c_password = cfg.get("password", "")
                     c_database = cfg.get("database") or cfg.get("dbname", "")
-                    c_conn_str = cfg.get("conn_str", "")
                     c_scan_all = cfg.get("scan_all", False)
+                    c_conn_str = cfg.get("conn_str", "")
 
                     # 如果提供了连接字符串，暂时忽略其他字段（按原逻辑处理）
                     if c_conn_str:
-                        # 如果你有连接字符串解析逻辑，可以在这里处理；否则跳过
+                        msg = f"连接字符串模式暂未支持批量检查（数据库 #{idx}）"
                         all_html_parts.append(f"""
-                        <div class='alert alert-warning'>连接字符串模式暂未支持批量检查（数据库 #{idx}）</div>
+                        <div class='alert alert-warning'>{msg}</div>
                         """)
+                        full_text_report += msg + "\n\n"
                         continue
 
                     # 构建连接参数
@@ -262,9 +275,11 @@ class DBCheckerModule(BaseChecker):
                     connector = DBConnector(**conn_kwargs)
                     if not connector.connect():
                         failed_connections += 1
+                        msg = f"数据库 #{idx} 连接失败：{c_host}:{c_port}/{c_database}"
                         all_html_parts.append(f"""
-                        <div class='alert alert-danger'>❌ 数据库 #{idx} 连接失败：{c_host}:{c_port}/{c_database}</div>
+                        <div class='alert alert-danger'>❌ {msg}</div>
                         """)
+                        full_text_report += msg + "\n\n"
                         continue
 
                     try:
@@ -273,15 +288,33 @@ class DBCheckerModule(BaseChecker):
                             databases = connector.get_databases()
                             all_tables_local = []
                             all_results_local = []
+                            if not databases:
+                                msg = f"数据库 #{idx} 连接成功，但未找到任何可扫描的库：{c_host}:{c_port}"
+                                all_html_parts.append(f"""
+                                <div class='alert alert-warning'>{msg}</div>
+                                """)
+                                full_text_report += msg + "\n\n"
                             for db_name in databases:
                                 sub_conn = DBConnector(
                                     db_type=c_db_type, host=c_host, port=c_port,
                                     user=c_user, password=c_password, database=db_name
                                 )
                                 if not sub_conn.connect():
+                                    msg = f"数据库 #{idx} 的库 {db_name} 连接失败，已跳过"
+                                    all_html_parts.append(f"""
+                                    <div class='alert alert-warning'>⚠️ {msg}</div>
+                                    """)
+                                    full_text_report += msg + "\n"
                                     continue
                                 try:
                                     sub_tables = sub_conn.get_tables()
+                                    if not sub_tables:
+                                        msg = f"库 {db_name} 无表，已跳过"
+                                        all_html_parts.append(f"""
+                                        <div class='text-muted'>📭 {msg}</div>
+                                        """)
+                                        full_text_report += msg + "\n"
+                                        continue
                                     all_tables_local.extend(sub_tables)
                                     sub_results = self._parallel_scan(
                                         tables=sub_tables,
@@ -297,9 +330,11 @@ class DBCheckerModule(BaseChecker):
                         else:
                             tables = connector.get_tables()
                             if not tables:
+                                msg = f"数据库 #{idx} 连接成功，但未找到任何表：{c_host}:{c_port}/{c_database}"
                                 all_html_parts.append(f"""
-                                <div class='alert alert-warning'>数据库 #{idx} 连接成功，但未找到任何表</div>
+                                <div class='alert alert-warning'>{msg}</div>
                                 """)
+                                full_text_report += msg + "\n\n"
                                 continue
 
                             results = self._parallel_scan(
@@ -326,7 +361,15 @@ class DBCheckerModule(BaseChecker):
                     finally:
                         connector.disconnect()
                     # 汇总统计
-                summary_html = f"""..."""
+                summary_html = f"""
+                <div class='alert alert-info mt-3'>
+                    <strong>数据库批量检查完成</strong><br>
+                    共检查 <strong>{len(configs)}</strong> 个数据库配置，
+                    连接失败 <strong>{failed_connections}</strong> 个，
+                    发现 <strong>{total_leak_count}</strong> 条涉密数据，
+                    涉及 <strong>{total_affected_tables}</strong> 个表。
+                </div>
+                """
                 full_html = "".join(all_html_parts) + summary_html
                 # ★ 保存完整的文本报告（包括各库详情）
                 full_text_report = (
@@ -344,9 +387,12 @@ class DBCheckerModule(BaseChecker):
                                     user=user, password=password,
                                     database=database, dbname=dbname)
             if not connector.connect():
-                return HTMLResponse(content="""
+                db_info = f"{db_type} {host}:{port}/{database or dbname}"
+                html = """
                 <div class='alert alert-danger'>❌ 数据库连接失败！请检查连接参数。</div>
-                """)
+                """
+                text = f"数据库检查报告\n数据库信息: {db_info}\n结果: 数据库连接失败，请检查连接参数。\n"
+                return self._response_with_report(html, text)
 
             try:
                 # ----- 处理 scan_all 扫描所有库 -----
@@ -354,15 +400,22 @@ class DBCheckerModule(BaseChecker):
                     databases = connector.get_databases()
                     all_tables = []
                     all_results = []
+                    skipped_messages = []
+                    if not databases:
+                        skipped_messages.append("连接成功，但未找到任何可扫描的库。")
 
                     for db_name in databases:
                         # 为每个库创建独立连接
                         db_conn = DBConnector(db_type=db_type, host=host, port=port,
                                               user=user, password=password, database=db_name)
                         if not db_conn.connect():
+                            skipped_messages.append(f"库 {db_name} 连接失败，已跳过。")
                             continue
                         try:
                             tables = db_conn.get_tables()
+                            if not tables:
+                                skipped_messages.append(f"库 {db_name} 无表，已跳过。")
+                                continue
                             all_tables.extend(tables)
                             results = self._parallel_scan(
                                 tables=tables,
@@ -376,18 +429,28 @@ class DBCheckerModule(BaseChecker):
                         finally:
                             db_conn.disconnect()
 
-                    db_info = f"MySQL {host}:{port} (所有库，共{len(databases)}个)"
+                    db_info = f"{db_type} {host}:{port} (所有库，共{len(databases)}个)"
                     html = self._build_html_result(all_results, all_tables, len(all_tables), db_path=db_info)
                     text_report = self._generate_text_report(all_results, all_tables, len(all_tables), db_info)
+                    if skipped_messages:
+                        warning_html = "".join(
+                            f"<div class='alert alert-warning'>⚠️ {msg}</div>"
+                            for msg in skipped_messages
+                        )
+                        html = warning_html + html
+                        text_report += "\n\n补充信息：\n" + "\n".join(skipped_messages)
                     self._write_report(text_report)
                     return HTMLResponse(content=html)
 
                 # ----- 原有单库扫描逻辑 -----
                 tables = connector.get_tables()
                 if not tables:
-                    return HTMLResponse(content="""
+                    db_info = f"{db_type} {host}:{port}/{database or dbname}"
+                    html = """
                     <div class='alert alert-warning'>数据库连接成功，但未找到任何表。</div>
-                    """)
+                    """
+                    text = f"数据库检查报告\n数据库信息: {db_info}\n结果: 数据库连接成功，但未找到任何表。\n"
+                    return self._response_with_report(html, text)
 
                 all_results = self._parallel_scan(
                     tables=tables,
@@ -417,20 +480,28 @@ class DBCheckerModule(BaseChecker):
         ):
             p = Path(path)
             if not p.exists():
-                return HTMLResponse(content=f"<div class='alert alert-danger'>路径不存在: {path}</div>")
+                html = f"<div class='alert alert-danger'>路径不存在: {path}</div>"
+                text = f"SQLite 数据库检查报告\n数据库文件: {path}\n结果: 路径不存在。\n"
+                return self._response_with_report(html, text)
             if p.suffix.lower() not in ['.db', '.sqlite', '.sqlite3', '.db3']:
-                return HTMLResponse(content=f"<div class='alert alert-warning'>文件 {p.name} 不是SQLite数据库文件</div>")
+                html = f"<div class='alert alert-warning'>文件 {p.name} 不是SQLite数据库文件</div>"
+                text = f"SQLite 数据库检查报告\n数据库文件: {p}\n结果: 文件不是 SQLite 数据库文件。\n"
+                return self._response_with_report(html, text)
 
             connector = DBConnector(db_type="sqlite", database=str(p))
             if not connector.connect():
-                return HTMLResponse(content="<div class='alert alert-danger'>❌ SQLite数据库打开失败！</div>")
+                html = "<div class='alert alert-danger'>❌ SQLite数据库打开失败！</div>"
+                text = f"SQLite 数据库检查报告\n数据库文件: {p}\n结果: SQLite 数据库打开失败。\n"
+                return self._response_with_report(html, text)
 
             try:
                 tables = connector.get_tables()
                 if not tables:
-                    return HTMLResponse(content="""
+                    html = """
                     <div class='alert alert-warning'>数据库打开成功，但未找到任何表。</div>
-                    """)
+                    """
+                    text = f"SQLite 数据库检查报告\n数据库文件: {p}\n结果: 数据库打开成功，但未找到任何表。\n"
+                    return self._response_with_report(html, text)
 
 
                 all_results = self._parallel_scan(
@@ -510,8 +581,14 @@ class DBCheckerModule(BaseChecker):
 
     # ==================== 辅助方法 ====================
     @staticmethod
+    def _response_with_report(html: str, text_report: str):
+        """返回 HTML 前先刷新最新文本报告，保证批量全检下载时不会拿到上一个任务的报告。"""
+        publish_latest_report(text_report or "数据库检查无文本报告。")
+        return HTMLResponse(content=html)
+
+    @staticmethod
     def _write_report(text_report: str):
-        publish_latest_report(text_report)
+        publish_latest_report(text_report or "数据库检查无文本报告。")
 
     @staticmethod
     def _generate_text_report(results: list, all_tables: list,
