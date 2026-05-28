@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 
+from checkers.batch_handler import check_batch_core, db_scan_all_core
 from utils.cache_manager import get_cache
 from utils.middleware import ProcessTimeMiddleware
 from utils.report_exporter import (
@@ -83,7 +84,80 @@ def create_app(modules: list = None):
         else:
             print(f"⚠️ 未知模块: {mod_name}，已跳过")
 
+    # ===== 新增批量全检接口 =====
+    @app.post("/check/batch")
+    async def check_batch(
+            url_configs_json: str = Form(None),
+            db_configs_json: str = Form(None),
+            file_path: str = Form(None),
+            image_path: str = Form(None),
+            audio_path: str = Form(None),
+            algorithm: str = Form("regex"),
+            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+            max_insert: int = Form(3),
+            format: str = Query(DEFAULT_REPORT_FORMAT),
+    ):
+        # 取出已注册的模块实例（注意：如果某个模块未注册，对应实例可能为 None）
+        web_inst = module_instances.get("web")
+        file_inst = module_instances.get("file")
+        image_inst = module_instances.get("image")
+        audio_inst = module_instances.get("audio")
+        db_inst = module_instances.get("db")
+        html_report, text_report = await check_batch_core(
+            url_configs_json, db_configs_json, file_path, image_path, audio_path,
+            algorithm, keywords, max_insert,
+            web_inst, file_inst, image_inst, audio_inst, db_inst,
+        )
+        # 更新全局报告
+        global LATEST_REPORT, LATEST_REPORTS
+        LATEST_REPORT = text_report
+        LATEST_REPORTS = {}
+        publish_latest_report(text_report)
+        # 根据 format 返回不同内容
+        report_format = format.lower()
+        if report_format in ("md", "txt"):
+            reports = build_report_exports(text_report)
+            return Response(
+                reports[report_format],
+                media_type=REPORT_MEDIA_TYPES[report_format],
+            )
+        return HTMLResponse(content=html_report)
 
+    # ===== 扫描数据库所有库（精简版） =====
+    @app.post("/check/db/scan-all", response_class=HTMLResponse)
+    async def db_scan_all(
+            db_type: str = Form("mysql"),
+            host: str = Form("localhost"),
+            port: int = Form(None),
+            dbname: str = Form(""),
+            user: str = Form(""),
+            password: str = Form(""),
+            conn_str: str = Form(""),
+            scan_all: str = Form("true"),
+            algorithm: str = Form("regex"),
+            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+            max_insert: int = Form(3),
+            format: str = Query(DEFAULT_REPORT_FORMAT),
+    ):
+        db_inst = module_instances.get("db")
+        if not db_inst:
+            return HTMLResponse("<div class='alert alert-danger'>数据库模块未加载</div>")
+        html_report, text_report = await db_scan_all_core(
+            db_type, host, port, user, password, dbname,
+            algorithm, keywords, max_insert, db_inst,
+        )
+        global LATEST_REPORT, LATEST_REPORTS
+        LATEST_REPORT = text_report
+        LATEST_REPORTS = {}
+        publish_latest_report(text_report)
+        report_format = format.lower()
+        if report_format in ("md", "txt"):
+            reports = build_report_exports(text_report)
+            return Response(
+                reports[report_format],
+                media_type=REPORT_MEDIA_TYPES[report_format],
+            )
+        return HTMLResponse(content=html_report)
 
     @app.post("/report/combine")
     async def combine_reports(reports_json: str = Form("[]")):
