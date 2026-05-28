@@ -188,7 +188,12 @@ def _process_image_path(args: tuple) -> Optional[dict]:
 
     # OCR 语言从 detector_kwargs 里取（或自行再获取一次）
     languages = _get_ocr_languages()
-    text = ocr_image(file_path, languages)
+    # text = ocr_image(file_path, languages)
+    try:
+        img = Image.open(io.BytesIO(content))
+        text = pytesseract.image_to_string(img, lang=_ocr_language_arg(languages)).strip()
+    except Exception:
+        text = ""
 
     ocr_note = ""   # 可以在外部分发，但这里简单处理
     if not text:
