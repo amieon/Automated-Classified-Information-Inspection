@@ -8,7 +8,7 @@ from .base_checker import BaseChecker
 from detector.leak_detector import LeakDetector
 from utils.parallel import run_parallel
 import threading
-from utils.cache_manager import DetectionCache
+from utils.cache_manager import DetectionCache, get_cache
 from utils.report_exporter import publish_latest_report
 
 # ==================== 全局 Whisper 模型单例（线程安全） ====================
@@ -39,6 +39,21 @@ AUDIO_MAGIC = {
     b'\x00\x00\x00\x14ftyp': 'm4a',
     b'\x00\x00\x00\x1cftyp': 'm4a',
 }
+
+
+def _asr_fingerprint() -> str:
+    """返回 ASR 模型与环境指纹，用于缓存区分。"""
+    model = get_whisper_model()
+    if model is None:
+        return "whisper:not_installed"
+    try:
+        import whisper
+        version = whisper.__version__
+    except Exception:
+        version = "unknown"
+    import sys
+    return f"whisper:{version}|python:{sys.version_info.major}.{sys.version_info.minor}"
+
 
 def is_audio_file(file_path: str) -> bool:
     try:
@@ -167,20 +182,14 @@ class AudioCheckerModule(BaseChecker):
         # ------ 方式1：输入路径 ------
         @app.post("/check/audio/path", response_class=HTMLResponse)
         async def check_audio_path(
-            path: str = Form(...),
-            algorithm: str = Form("regex"),
-            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
-            max_insert: int = Form(3)
+                path: str = Form(...),
+                algorithm: str = Form("regex"),
+                keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+                max_insert: int = Form(3)
         ):
-            detector_kwargs = {
-                "keywords": keywords,
-                "algorithm": algorithm,
-                "max_insert": max_insert
-            }
-            detector = LeakDetector(**detector_kwargs)
-            # 为本次请求创建独立缓存，避免配置混乱
-            cache = DetectionCache()
-            cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+            base_kwargs = {"keywords": keywords, "algorithm": algorithm, "max_insert": max_insert}
+            asr_fp = _asr_fingerprint()
+            detector_kwargs = {**base_kwargs, "asr": asr_fp}
 
             p = Path(path)
             if not p.exists():
@@ -188,12 +197,12 @@ class AudioCheckerModule(BaseChecker):
 
             results = []
             if p.is_file():
-                results.append(self._process_single_audio(str(p), detector, cache))
+                results.append(self._process_single_audio(str(p), detector_kwargs))
             elif p.is_dir():
                 for root, dirs, files in os.walk(p):
                     for file in files:
                         fp = Path(root) / file
-                        results.append(self._process_single_audio(str(fp), detector, cache))
+                        results.append(self._process_single_audio(str(fp), detector_kwargs))
             else:
                 return HTMLResponse(content="<div class='alert alert-danger'>既不是文件也不是文件夹</div>")
 
@@ -215,31 +224,28 @@ class AudioCheckerModule(BaseChecker):
 
     # ==================== 上传处理主流程 ====================
     async def _handle_audio_upload(
-        self,
-        files: List[UploadFile],
-        algorithm: str,
-        keywords: str,
-        max_insert: int
+            self,
+            files: List[UploadFile],
+            algorithm: str,
+            keywords: str,
+            max_insert: int
     ) -> HTMLResponse:
-        # 1. 一次性读取所有文件内容
-        filedata_list = []   # (filename, content_bytes)
+        # 1. 读取所有文件
+        filedata_list = []
         for file in files:
             content = await file.read()
             filedata_list.append((file.filename, content))
 
-        # 2. 创建本次请求的缓存实例，配置指纹
-        cache = DetectionCache()
-        cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+        # 2. 构建配置字典（包含 ASR 指纹）
+        base_kwargs = {"keywords": keywords, "algorithm": algorithm, "max_insert": max_insert}
+        asr_fp = _asr_fingerprint()
+        detector_kwargs = {**base_kwargs, "asr": asr_fp}
 
-        detector_kwargs = {
-            "keywords": keywords,
-            "algorithm": algorithm,
-            "max_insert": max_insert
-        }
+        cache = get_cache()
 
-        # 3. 分离有效音频、错误文件，并建立索引映射
-        error_results = []          # 含 _index
-        valid_items = []            # (filename, content, index)
+        # 3. 分离有效音频、错误文件
+        error_results = []
+        valid_items = []
         for idx, (filename, content) in enumerate(filedata_list):
             if not content:
                 error_results.append({
@@ -261,16 +267,14 @@ class AudioCheckerModule(BaseChecker):
                 continue
             valid_items.append((filename, content, idx))
 
-        # 4. 缓存检查，拆分命中与未命中的任务
+        # 4. 缓存检查
         cached_results = []
-        need_process_items = []   # (filename, content, idx)
-        # 为了后续缓存写入，建立 idx -> content 的快速查找
+        need_process_items = []
         idx_content_map = {}
         for filename, content, idx in valid_items:
             idx_content_map[idx] = content
-            cached = cache.get_audio(content)
+            cached = cache.get_audio(content, detector_kwargs)
             if cached is not None:
-                # cached 应包含 'leak_lines', 'file_type', 'note' 等字段
                 res = {
                     '_index': idx,
                     'path': filename,
@@ -282,7 +286,7 @@ class AudioCheckerModule(BaseChecker):
             else:
                 need_process_items.append((filename, content, idx))
 
-        # 5. 并行处理未命中缓存的任务（如果需要）
+        # 5. 并行处理未命中缓存的任务
         processed_results = []
         if need_process_items:
             items = [(filename, content, idx, detector_kwargs)
@@ -299,32 +303,29 @@ class AudioCheckerModule(BaseChecker):
                 idx = res['_index']
                 content = idx_content_map.get(idx)
                 if content is not None:
-                    # 缓存核心检测结果（不含路径等外部信息）
                     cache.set_audio(content, {
                         'leak_lines': res.get('leak_lines', []),
                         'file_type': res.get('file_type', 'audio'),
                         'note': res.get('note', '')
-                    })
+                    }, detector_kwargs)
 
-        # 6. 合并所有结果（带 _index）
+        # 6. 合并结果，按索引排序
         all_results = error_results + cached_results + processed_results
         all_results.sort(key=lambda r: r['_index'])
 
-        # 7. 清除 _index 字段，生成最终结果列表
         final_results = []
         for r in all_results:
             r.pop('_index', None)
             final_results.append(r)
 
-        # 8. 生成纯文本报告 & HTML
         text_report = self._generate_text_report(final_results, mode="音频上传检查")
         publish_latest_report(text_report)
 
         return HTMLResponse(content=self._build_html_result(final_results))
 
     # ==================== 路径模式单文件处理 ====================
-    def _process_single_audio(self, file_path: str, detector: LeakDetector, cache: DetectionCache) -> dict:
-        # 读取文件内容
+    def _process_single_audio(self, file_path: str, detector_kwargs: dict) -> dict:
+        cache = get_cache()
         try:
             with open(file_path, 'rb') as f:
                 content = f.read()
@@ -336,7 +337,6 @@ class AudioCheckerModule(BaseChecker):
                 'note': '文件无法读取'
             }
 
-        # 非音频文件提前返回（可选，保持兼容）
         if not is_audio_bytes(content):
             return {
                 'path': file_path,
@@ -345,8 +345,8 @@ class AudioCheckerModule(BaseChecker):
                 'note': '不是音频文件'
             }
 
-        # 尝试从缓存获取
-        cached = cache.get_audio(content)
+        # 缓存命中
+        cached = cache.get_audio(content, detector_kwargs)
         if cached is not None:
             return {
                 'path': file_path,
@@ -358,13 +358,12 @@ class AudioCheckerModule(BaseChecker):
         # 未命中，执行 ASR + 检测
         text = asr_audio(file_path)
         if not text:
-            # 无语音识别结果，也要缓存这个状态，避免重复 ASR
             core_result = {
                 'leak_lines': [],
                 'file_type': 'audio',
                 'note': '音频中未识别出语音'
             }
-            cache.set_audio(content, core_result)
+            cache.set_audio(content, core_result, detector_kwargs)
             return {
                 'path': file_path,
                 'leak_lines': [],
@@ -372,13 +371,15 @@ class AudioCheckerModule(BaseChecker):
                 'note': '音频中未识别出语音'
             }
 
+        detector = LeakDetector(
+            **{k: v for k, v in detector_kwargs.items() if k in ('keywords', 'algorithm', 'max_insert')})
         leak_lines = detector.check_text(text)
         core_result = {
             'leak_lines': leak_lines,
             'file_type': 'audio',
             'note': ''
         }
-        cache.set_audio(content, core_result)
+        cache.set_audio(content, core_result, detector_kwargs)
         return {
             'path': file_path,
             'leak_lines': leak_lines,

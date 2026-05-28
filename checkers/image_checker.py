@@ -143,11 +143,8 @@ def _image_preview_data_url(image_bytes: bytes, max_size=(1200, 900)) -> str:
 # ==================== 并行任务函数（供 run_parallel 调用） ====================
 
 def _process_image_path(args: tuple) -> Optional[dict]:
-    file_path, detector_kwargs = args
+    file_path, detector_kwargs = args    # detector_kwargs 已包含 ocr 指纹
     cache = get_cache()
-    # 设置配置指纹（与主进程保持一致）
-    ocr_fingerprint, ocr_note, ocr_languages = _ocr_status()
-    _configure_image_cache(cache, detector_kwargs, ocr_fingerprint)
 
     if not is_image_file(file_path):
         return {
@@ -157,7 +154,6 @@ def _process_image_path(args: tuple) -> Optional[dict]:
             'note': '不是图片文件'
         }
 
-    # 读取完整字节内容用于缓存
     try:
         with open(file_path, 'rb') as f:
             content = f.read()
@@ -169,17 +165,15 @@ def _process_image_path(args: tuple) -> Optional[dict]:
             'note': '读取文件失败'
         }
 
-    # --- 缓存尝试 ---
-    cached = cache.get_image(content)
+    # ------ 缓存尝试 ------
+    cached = cache.get_image(content, detector_kwargs)
     if cached is not None:
-        # 缓存命中，直接返回存储的结果（需补上 path 字段）
         result = cached.copy()
         result['path'] = file_path
         result['image_preview'] = _image_preview_data_url(content)
         return result
-    # -----------------
+    # -------------------
 
-    # 未命中，执行原本的 OCR+检测
     img_format = 'unknown'
     try:
         header = content[:16]
@@ -190,19 +184,23 @@ def _process_image_path(args: tuple) -> Optional[dict]:
         if img_format == 'unknown' and len(header) >= 2 and header[0] == 0xff and header[1] == 0xd8:
             img_format = 'jpeg'
     except Exception:
-        img_format = 'unknown'
+        pass
 
-    text = ocr_image(file_path, ocr_languages)          # 注意：ocr_image 内部会再次打开文件，效率稍低，可优化
+    # OCR 语言从 detector_kwargs 里取（或自行再获取一次）
+    languages = _get_ocr_languages()
+    text = ocr_image(file_path, languages)
+
+    ocr_note = ""   # 可以在外部分发，但这里简单处理
     if not text:
         result = {
             'path': file_path,
             'leak_lines': [],
             'file_type': img_format,
-            'note': "；".join(filter(None, [ocr_note, '图片中未检测到文字'])),
+            'note': "图片中未检测到文字",
             'image_preview': _image_preview_data_url(content)
         }
     else:
-        detector = LeakDetector(**detector_kwargs)
+        detector = LeakDetector(**{k: v for k, v in detector_kwargs.items() if k in ("keywords", "algorithm", "max_insert")})
         leak_lines = detector.check_text(text)
         result = {
             'path': file_path,
@@ -212,23 +210,21 @@ def _process_image_path(args: tuple) -> Optional[dict]:
             'image_preview': _image_preview_data_url(content)
         }
 
-    # 写入缓存（不含 path，仅存可复用的检测结果）
+    # 写缓存（只保存可复用的部分）
     cache.set_image(content, {
         'leak_lines': result['leak_lines'],
         'file_type': result['file_type'],
         'note': result['note']
-    })
+    }, detector_kwargs)
+
     return result
 
 
 def _process_image_bytes(args: tuple) -> Optional[dict]:
     filename, img_bytes, index, detector_kwargs = args
     cache = get_cache()
-    ocr_fingerprint, ocr_note, ocr_languages = _ocr_status()
-    _configure_image_cache(cache, detector_kwargs, ocr_fingerprint)
 
-    # --- 缓存尝试 ---
-    cached = cache.get_image(img_bytes)
+    cached = cache.get_image(img_bytes, detector_kwargs)
     if cached is not None:
         result = cached.copy()
         result.update({
@@ -237,34 +233,37 @@ def _process_image_bytes(args: tuple) -> Optional[dict]:
             'image_preview': _image_preview_data_url(img_bytes)
         })
         return result
-    # -----------------
 
-    # 未命中，执行 OCR+检测
+    languages = _get_ocr_languages()
     try:
         img = Image.open(io.BytesIO(img_bytes))
-
-        text = pytesseract.image_to_string(img, lang=_ocr_language_arg(ocr_languages),config='--psm 6').strip()
+        text = pytesseract.image_to_string(
+            img,
+            lang=_ocr_language_arg(languages),
+            config='--psm 6'
+        ).strip()
     except Exception:
         text = ""
 
-    detector = LeakDetector(**detector_kwargs)
+    detector_kwargs_clean = {k: v for k, v in detector_kwargs.items() if k in ("keywords", "algorithm", "max_insert")}
+    detector = LeakDetector(**detector_kwargs_clean)
     leak_lines = detector.check_text(text) if text else []
 
     result = {
         'path': filename,
         'leak_lines': leak_lines,
         'file_type': 'image',
-        'note': ocr_note if text else "；".join(filter(None, [ocr_note, 'OCR未能提取文字'])),
+        'note': "" if text else "OCR未能提取文字",
         '_index': index,
         'image_preview': _image_preview_data_url(img_bytes)
     }
 
-    # 写入缓存（只存可复用部分）
     cache.set_image(img_bytes, {
         'leak_lines': leak_lines,
         'file_type': 'image',
         'note': result['note']
-    })
+    }, detector_kwargs)
+
     return result
 
 
@@ -274,37 +273,30 @@ class ImageCheckerModule(BaseChecker):
         # ------ 方式1：输入路径 ------
         @app.post("/check/image/path", response_class=HTMLResponse)
         async def check_image_path(
-            path: str = Form(...),
-            algorithm: str = Form("regex"),
-            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
-            max_insert: int = Form(3)
+                path: str = Form(...),
+                algorithm: str = Form("regex"),
+                keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
+                max_insert: int = Form(3)
         ):
-            detector_kwargs = {
-                "keywords": keywords,
-                "algorithm": algorithm,
-                "max_insert": max_insert
-            }
-            cache = get_cache()
-            cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+            base_kwargs = {"keywords": keywords, "algorithm": algorithm, "max_insert": max_insert}
+            ocr_fingerprint, ocr_note, _ = _ocr_status()
+            detector_kwargs = {**base_kwargs, "ocr": ocr_fingerprint}
+
             p = Path(path)
             if not p.exists():
                 return HTMLResponse(content="<div class='alert alert-danger'>路径不存在</div>")
 
             results = []
             if p.is_file():
-                # 单文件直接处理
                 res = _process_image_path((str(p), detector_kwargs))
                 if res:
                     results.append(res)
             elif p.is_dir():
-                # 收集所有文件路径
                 file_list = []
                 for root, dirs, files in os.walk(p):
                     for file in files:
                         file_list.append(str(Path(root) / file))
-                # 并行处理
                 if file_list:
-                    # 每个任务参数为 (path, detector_kwargs)
                     tasks = [(fp, detector_kwargs) for fp in file_list]
                     tmp_results = run_parallel(
                         process_func=_process_image_path,
@@ -313,7 +305,6 @@ class ImageCheckerModule(BaseChecker):
                         executor_type="process",
                         description="扫描图片文件中"
                     )
-                    # 按路径排序（可选）
                     tmp_results.sort(key=lambda r: r.get('path', ''))
                     results = tmp_results
             else:
@@ -332,49 +323,28 @@ class ImageCheckerModule(BaseChecker):
             max_insert: int = Form(3)
         ):
             return await self._handle_image_upload(files=files, algorithm=algorithm,keywords=keywords,max_insert=max_insert)
-    async def _handle_image_upload(
-            self,
-            files: List[UploadFile] = Form(...),
-            algorithm: str = Form("regex"),
-            keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
-            max_insert: int = Form(3)
-        ):
-        detector_kwargs = {
-            "keywords": keywords,
-            "algorithm": algorithm,
-            "max_insert": max_insert
-        }
-        # 收集每个文件的数据：文件名、字节内容、原始索引
+
+    async def _handle_image_upload(self, files, algorithm, keywords, max_insert):
+        base_kwargs = {"keywords": keywords, "algorithm": algorithm, "max_insert": max_insert}
+        ocr_fingerprint, ocr_note, _ = _ocr_status()
+        detector_kwargs = {**base_kwargs, "ocr": ocr_fingerprint}
+
         filedata = []
         for idx, file in enumerate(files):
             content = await file.read()
             filedata.append((file.filename, content, idx))
 
-        # 分拣：图片文件送并行，其他直接生成结果
         image_tasks = []
-        results_map = {}   # 索引 -> 结果字典
-
+        results_map = {}
         for filename, content, idx in filedata:
             if not content:
-                results_map[idx] = {
-                    'path': filename,
-                    'leak_lines': [],
-                    'file_type': 'empty',
-                    'note': '文件为空'
-                }
+                results_map[idx] = {'path': filename, 'leak_lines': [], 'file_type': 'empty', 'note': '文件为空'}
                 continue
             if not self._is_image_bytes(content):
-                results_map[idx] = {
-                    'path': filename,
-                    'leak_lines': [],
-                    'file_type': 'unknown',
-                    'note': '不是图片文件'
-                }
+                results_map[idx] = {'path': filename, 'leak_lines': [], 'file_type': 'unknown', 'note': '不是图片文件'}
                 continue
-            # 有效图片，加入并行任务
             image_tasks.append((filename, content, idx, detector_kwargs))
 
-        # 并行处理图片
         if image_tasks:
             image_results = run_parallel(
                 process_func=_process_image_bytes,
@@ -387,10 +357,7 @@ class ImageCheckerModule(BaseChecker):
                 idx = r.pop('_index', 0)
                 results_map[idx] = r
 
-        # 按索引顺序重建最终结果列表
         results = [results_map[i] for i in sorted(results_map.keys())]
-
-        # 生成报告并写入全局变量
         text_report = self._generate_text_report(results, mode="图片上传检查")
         publish_latest_report(text_report)
         return self._build_html_result(results)

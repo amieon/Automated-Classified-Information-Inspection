@@ -256,47 +256,35 @@ def read_text_from_file(file_path: str) -> str:
 
 def process_single_file(
     file_path: str,
-    keywords: str,
-    algorithm: str,
-    max_insert: int,
-    cache=None,          # 缓存实例
-    config_raw: str = "" # 检测配置指纹字符串
+    detector_kwargs: dict,        # 包含 keywords, algorithm, max_insert
+    cache=None
 ) -> Optional[dict]:
-    """
-    处理单个文件：读取、检测、获取属性。
-    若提供缓存，则优先从缓存加载 leak_lines 和 file_type，跳过文本检测。
-    """
-    # 1. 读取文件全部二进制内容
+    # 1. 读取文件二进制内容
     try:
         with open(file_path, 'rb') as f:
             content = f.read()
     except Exception:
         content = b''
-    # 2. 计算缓存 key 并尝试命中
+
+    # 2. 缓存命中
     cached_result = None
-    if cache and config_raw and content:
-        fp = hashlib.md5(content + config_raw.encode()).hexdigest()
-        key = f"file:{fp}"
-        cached_result = cache.cache.get(key)
-    # 3. 从缓存获取核心检测结果，或者执行实际检测
+    if cache and content:
+        cached_result = cache.get_file(content, detector_kwargs)
+
+    # 3. 获取或计算检测结果
     if cached_result is not None:
         leak_lines = cached_result.get('leak_lines', [])
         file_type = cached_result.get('file_type', guess_file_type(content, is_bytes=True))
     else:
-        # 执行正式检测
-        detector = LeakDetector(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
+        detector = LeakDetector(**detector_kwargs)
         text = read_text_from_bytes(content, os.path.basename(file_path))
         leak_lines = detector.check_text(text) if text else []
         file_type = guess_file_type(content, is_bytes=True)
-        # 写入缓存（仅保存与内容相关的字段）
-        if cache and config_raw and content:
-            cache.cache.set(key, {
-                'leak_lines': leak_lines,
-                'file_type': file_type
-            }, expire=cache.ttl_map["file"])
-    # 4. 检查文件系统属性（这些不能缓存，每次都重新检测）
+        if cache and content:
+            cache.set_file(content, {'leak_lines': leak_lines, 'file_type': file_type}, detector_kwargs)
+
+    # 4. 文件系统属性检查（不可缓存）
     is_hid = is_hidden_file(file_path)
-    #print(is_hid)
     enc_info = check_encryption(file_path)
     note_parts = []
     if not content:
@@ -305,6 +293,7 @@ def process_single_file(
         note_parts.append('隐藏文件')
     if enc_info['is_encrypted']:
         note_parts.append('加密' if not enc_info.get('is_pseudo') else '伪加密')
+
     return {
         'path': str(file_path),
         'leak_lines': leak_lines,
@@ -326,7 +315,7 @@ class FileCheckerModule(BaseChecker):
             keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
             max_insert: int = Form(3)
         ):
-
+            detector_kwargs = dict(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
             cache = get_cache()
             # 构建本次请求的配置指纹（不污染全局状态）
             config_raw = f"{keywords}||{algorithm}||{max_insert}"
@@ -337,8 +326,8 @@ class FileCheckerModule(BaseChecker):
             if p.is_file():
                 # 单文件直接调用（带缓存）
                 result = process_single_file(
-                    str(p), keywords, algorithm, max_insert,
-                    cache=cache, config_raw=config_raw
+                    str(p), detector_kwargs=detector_kwargs,
+                    cache=cache
                 )
                 if result:
                     results.append(result)
@@ -351,8 +340,8 @@ class FileCheckerModule(BaseChecker):
                 # 并行检测，每个 worker 独立使用缓存
                 results = run_parallel(
                     process_func=lambda fp: process_single_file(
-                        fp, keywords, algorithm, max_insert,
-                        cache=cache, config_raw=config_raw
+                        fp, detector_kwargs=detector_kwargs,
+                        cache=cache
                     ),
                     items=file_list,
                     max_workers=4,
@@ -401,26 +390,18 @@ class FileCheckerModule(BaseChecker):
                         os.unlink(tmp_path)
 
                 # 缓存检查
-                cached_result = None
-                if cache and config_raw and content:
-                    fp = hashlib.md5(content + config_raw.encode()).hexdigest()
-                    key = f"file:{fp}"
-                    cached_result = cache.cache.get(key)
-
+                cached_result = cache.get_file(content, detector_kwargs) if cache and content else None
                 if cached_result is not None:
                     leak_lines = cached_result.get('leak_lines', [])
                     file_type = cached_result.get('file_type', guess_file_type(content, is_bytes=True))
-                    text = read_text_from_bytes(content, file.filename)
+                    text = read_text_from_bytes(content, file.filename)  # 仍可用于备注
                 else:
                     detector = LeakDetector(**detector_kwargs)
                     text = read_text_from_bytes(content, file.filename)
                     leak_lines = detector.check_text(text) if text else []
-                    file_type = guess_file_type(content, is_bytes=True)  # ← 修复：加上 is_bytes=True
-                    if cache and config_raw and content:
-                        cache.cache.set(key, {
-                            'leak_lines': leak_lines,
-                            'file_type': file_type
-                        }, expire=cache.ttl_map["file"])
+                    file_type = guess_file_type(content, is_bytes=True)
+                    if cache and content:
+                        cache.set_file(content, {'leak_lines': leak_lines, 'file_type': file_type}, detector_kwargs)
 
                 # 备注
                 note_parts = []

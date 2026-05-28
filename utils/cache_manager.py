@@ -2,8 +2,12 @@
 缓存管理模块 - 基于内容 MD5 的智能检测结果缓存
 支持：网页 / 文件 / 图片 / 音频 / 数据库
 策略：内容指纹 + 检测配置合并 → 单一 MD5 键，TTL 过期 + LRU 容量淘汰
+
+（v3 字典配置版：所有缓存操作接收 config 字典，彻底消除实例态竞争）
 """
 import hashlib
+import json
+import threading
 from typing import Optional, Any, Union
 
 import diskcache as dc
@@ -14,10 +18,10 @@ class DetectionCache:
     涉密检测结果缓存管理器
 
     核心设计：
-    1. 所有缓存键只依赖“内容 MD5 + 检测配置指纹”，不再耦合文件路径或 URL。
-    2. 检测配置通过 config_fingerprint() 预置，内部自动参与指纹计算。
-    3. 统一外部接口：get_xxx(content) / set_xxx(content, result)，
-       其中 content 为网页字符串或文件/图片/音频的原始字节。
+    1. 所有缓存键只依赖“内容 MD5 + 检测配置”，不再耦合文件路径或 URL。
+    2. 检测配置通过一个字典（例如 dict(keywords=..., algorithm=..., max_insert=...)）
+       在每次 get/set 时传入，天然线程安全，无需实例级状态。
+    3. 统一外部接口：get_xxx(content, config) / set_xxx(content, result, config)
     """
 
     def __init__(self, cache_dir: str = "./.detect_cache", size_limit_mb: int = 500):
@@ -38,30 +42,17 @@ class DetectionCache:
             "db":    3600,        # 数据库：1小时（变化频繁）
         }
 
-        # 当前检测配置指纹（影响所有缓存键）
-        self._config_raw: str = ""
-
-    # ==================== 配置指纹设置 ====================
-
-    def config_fingerprint(self, keywords: str = "", algorithm: str = "regex",
-                           max_insert: int = 3) -> None:
-        """
-        设置检测配置指纹。任何配置参数变化 → 指纹不同 → 所有缓存自动失效。
-
-        调用时机：每次检测前必须调用一次（通常在 checker 初始化或配置变更时）。
-        """
-        self._config_raw = f"{keywords}||{algorithm}||{max_insert}"
-
     # ==================== 内部指纹计算 ====================
 
-    def _content_fingerprint(self, content: Union[str, bytes]) -> str:
+    def _content_fingerprint(self, content: Union[str, bytes], config: dict) -> str:
         """
         计算“内容 + 检测配置”的组合 MD5，作为缓存唯一键。
-
-        - 文本内容 (str) → 先 utf-8 编码再拼接配置字节
-        - 二进制内容 (bytes) → 直接拼接配置字节
+        config 必须包含 keywords, algorithm, max_insert，也可以有额外字段（如 ocr）。
         """
-        config_bytes = self._config_raw.encode("utf-8")
+        # 对 config 键排序后序列化，确保无论插入顺序如何都得到相同字符串
+        config_str = json.dumps(config, sort_keys=True, ensure_ascii=False)
+        config_bytes = config_str.encode("utf-8")
+
         if isinstance(content, str):
             data = content.encode("utf-8") + config_bytes
         else:
@@ -71,56 +62,49 @@ class DetectionCache:
     # ==================== 统一外部接口 ====================
 
     # --- 网页 ---
-    def get_web(self, content: str) -> Optional[Any]:
-        """content: 网页 HTML 文本"""
-        fp = self._content_fingerprint(content)
+    def get_web(self, content: str, config: dict) -> Optional[Any]:
+        fp = self._content_fingerprint(content, config)
         return self.cache.get(f"web:{fp}")
 
-    def set_web(self, content: str, result: Any) -> None:
-        fp = self._content_fingerprint(content)
+    def set_web(self, content: str, result: Any, config: dict) -> None:
+        fp = self._content_fingerprint(content, config)
         self.cache.set(f"web:{fp}", result, expire=self.ttl_map["web"])
 
     # --- 文件（通用二进制文件）---
-    def get_file(self, content: bytes) -> Optional[Any]:
-        """content: 文件内容的完整字节"""
-        fp = self._content_fingerprint(content)
+    def get_file(self, content: bytes, config: dict) -> Optional[Any]:
+        fp = self._content_fingerprint(content, config)
         return self.cache.get(f"file:{fp}")
 
-    def set_file(self, content: bytes, result: Any) -> None:
-        fp = self._content_fingerprint(content)
+    def set_file(self, content: bytes, result: Any, config: dict) -> None:
+        fp = self._content_fingerprint(content, config)
         self.cache.set(f"file:{fp}", result, expire=self.ttl_map["file"])
 
     # --- 图片 ---
-    def get_image(self, content: bytes) -> Optional[Any]:
-        """content: 图片文件的字节数据"""
-        fp = self._content_fingerprint(content)
+    def get_image(self, content: bytes, config: dict) -> Optional[Any]:
+        fp = self._content_fingerprint(content, config)
         return self.cache.get(f"image:{fp}")
 
-    def set_image(self, content: bytes, result: Any) -> None:
-        fp = self._content_fingerprint(content)
+    def set_image(self, content: bytes, result: Any, config: dict) -> None:
+        fp = self._content_fingerprint(content, config)
         self.cache.set(f"image:{fp}", result, expire=self.ttl_map["image"])
 
     # --- 音频 ---
-    def get_audio(self, content: bytes) -> Optional[Any]:
-        """content: 音频文件的字节数据"""
-        fp = self._content_fingerprint(content)
+    def get_audio(self, content: bytes, config: dict) -> Optional[Any]:
+        fp = self._content_fingerprint(content, config)
         return self.cache.get(f"audio:{fp}")
 
-    def set_audio(self, content: bytes, result: Any) -> None:
-        fp = self._content_fingerprint(content)
+    def set_audio(self, content: bytes, result: Any, config: dict) -> None:
+        fp = self._content_fingerprint(content, config)
         self.cache.set(f"audio:{fp}", result, expire=self.ttl_map["audio"])
 
     # --- 数据库（特殊：由调用方提供唯一描述串）---
-    def get_db(self, identifier: str) -> Optional[Any]:
-        """
-        identifier: 描述数据库检测范围的字符串，如 "db_name:table:行数:校验和"
-        该串与检测配置合并后生成指纹。
-        """
-        fp = self._content_fingerprint(identifier)
+    def get_db(self, identifier: str, config: dict) -> Optional[Any]:
+        """identifier: 描述数据库检测范围的字符串，如 'db_name:table:行数:校验和'"""
+        fp = self._content_fingerprint(identifier, config)
         return self.cache.get(f"db:{fp}")
 
-    def set_db(self, identifier: str, result: Any) -> None:
-        fp = self._content_fingerprint(identifier)
+    def set_db(self, identifier: str, result: Any, config: dict) -> None:
+        fp = self._content_fingerprint(identifier, config)
         self.cache.set(f"db:{fp}", result, expire=self.ttl_map["db"])
 
     # ==================== 管理接口 ====================
@@ -152,13 +136,16 @@ class DetectionCache:
         self.cache.close()
 
 
-# ==================== 全局单例 ====================
+# ==================== 全局单例（线程安全） ====================
 _cache_instance: Optional[DetectionCache] = None
+_instance_lock = threading.Lock()
 
 
 def get_cache() -> DetectionCache:
-    """获取全局缓存单例（线程安全）"""
+    """获取全局缓存单例（双重检查加锁，线程安全）"""
     global _cache_instance
     if _cache_instance is None:
-        _cache_instance = DetectionCache()
+        with _instance_lock:
+            if _cache_instance is None:
+                _cache_instance = DetectionCache()
     return _cache_instance

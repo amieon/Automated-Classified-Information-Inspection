@@ -26,7 +26,6 @@ class WebCheckerModule(BaseChecker):
             detector_kwargs = dict(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
             # ---------- 0. 初始化缓存并配置当前检测指纹 ----------
             cache = get_cache()
-            cache.config_fingerprint(keywords=keywords, algorithm=algorithm, max_insert=max_insert)
 
             # ---------- 1. 异步爬取所有 URL，去重 ----------
             all_pages_dict: dict[str, str] = {}  # page_url → html，自动去重
@@ -42,7 +41,7 @@ class WebCheckerModule(BaseChecker):
             cached_results = []
             pending_items = []
             for page_url, html in all_pages:
-                cached = cache.get_web(html)
+                cached = cache.get_web(html, detector_kwargs)
                 if cached is not None:
                     result = {
                         'url': page_url,
