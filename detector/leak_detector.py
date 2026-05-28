@@ -1,6 +1,6 @@
 from .regex_leak_detector import RegexLeakDetector
 from .AC_leak_detector import ACLeakDetector
-from checkers.keywords import KEYWORDS
+
 
 
 class LeakDetector:
@@ -22,7 +22,7 @@ class LeakDetector:
         if isinstance(keywords, str):
             self.keywords = [k.strip() for k in keywords.split(",") if k.strip()]
         else:
-            self.keywords = keywords or KEYWORDS
+            self.keywords = keywords
 
         self.algorithm = algorithm
         self.max_insert = max_insert
