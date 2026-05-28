@@ -65,7 +65,7 @@ class WebCheckerModule(BaseChecker):
                     collect_results=True
                 )
                 for (page_url, html), result in zip(pending_items, detected_results):
-                    cache.set_web(html, result)
+                    cache.set_web(html, result, detector_kwargs)
 
             # ---------- 4. 合并结果 ----------
             all_results = cached_results + detected_results
