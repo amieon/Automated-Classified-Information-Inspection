@@ -1,7 +1,6 @@
 # aho_detector.py
 import ahocorasick
 from typing import List, Dict, Optional
-from checkers.keywords import KEYWORDS
 
 
 class ACLeakDetector:
@@ -17,7 +16,7 @@ class ACLeakDetector:
         """
         :param keywords: 敏感词列表，默认使用 KEYWORDS
         """
-        self.keywords = keywords or KEYWORDS
+        self.keywords = keywords
         self._automaton = self._build_automaton()
 
     def _build_automaton(self):
