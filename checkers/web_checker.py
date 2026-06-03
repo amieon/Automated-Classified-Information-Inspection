@@ -23,70 +23,51 @@ class WebCheckerModule(BaseChecker):
                 keywords: str = Form("秘密,机密,绝密,内部,涉密,保密,密级,不予公开"),
                 max_insert: int = Form(3)
         ):
-            detector_kwargs = dict(
-                keywords=keywords,
-                algorithm=algorithm,
-                max_insert=max_insert
-            )
-
-            # 路由也复用公开方法，避免批量检查和单独网页检查两套逻辑不一致
-            html = await self.check_single_url(
+            html_report, text_report, results = await self.check_single_url(
                 url,
-                detector_kwargs=detector_kwargs,
-                return_html=True,
+                algorithm=algorithm,
+                keywords=keywords,
+                max_insert=max_insert,
                 publish_report=True
             )
-            return HTMLResponse(content=html)
+            return HTMLResponse(content=html_report)
 
     async def check_single_url(
             self,
             url,
-            detector_kwargs: Optional[dict] = None,
-            *,
             algorithm: str = "regex",
             keywords: str = "秘密,机密,绝密,内部,涉密,保密,密级,不予公开",
             max_insert: int = 3,
-            return_html: bool = True,
-            publish_report: bool = False
+            publish_report: bool = False,
     ):
         """
-        给 batch_handler.py 调用的公开接口。
+        批量全检调用的公开接口。
 
-        支持两种调用方式：
+        batch_handler.py 里现在是这样调用的：
 
-            await web_checker.check_single_url(url, detector_kwargs)
-
-        或者：
-
-            await web_checker.check_single_url(
-                url,
-                algorithm="regex",
-                keywords="秘密,机密",
-                max_insert=3
+            h, t, _ = await web_module_instance.check_single_url(
+                url, algorithm, keywords, max_insert
             )
 
-        :param url: 单个 URL 字符串，或 URL 列表
-        :param detector_kwargs: 检测器参数
-        :param return_html: True 返回 HTML 字符串；False 返回原始 results 列表
-        :param publish_report: 是否发布 latest_report，单独网页检查可以 True，批量检查一般可以 False
+        所以这里必须返回三元组：
+
+            html_report, text_report, results
         """
-        if detector_kwargs is None:
-            detector_kwargs = dict(
-                keywords=keywords,
-                algorithm=algorithm,
-                max_insert=max_insert
-            )
+        detector_kwargs = dict(
+            keywords=keywords,
+            algorithm=algorithm,
+            max_insert=max_insert
+        )
 
         results = await self._check_urls(url, detector_kwargs)
 
+        html_report = self._build_html_result(results)
+        text_report = self._generate_text_report(results, mode="网页爬取检查")
+
         if publish_report:
-            text_report = self._generate_text_report(results, mode="网页爬取检查")
             publish_latest_report(text_report)
 
-        if return_html:
-            return self._build_html_result(results)
-
-        return results
+        return html_report, text_report, results
 
     async def _check_urls(self, urls, detector_kwargs: dict) -> list:
         """
@@ -95,7 +76,7 @@ class WebCheckerModule(BaseChecker):
         2. 去重
         3. 查缓存
         4. 多进程检测未缓存页面
-        5. 返回统一结构 results
+        5. 返回统一 results
         """
         if isinstance(urls, str):
             urls = [urls]
